@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 
-contract GuardRegistryTest is Test {
+contract DeSecRegistryTest is Test {
 
     function setUp() public {
     }
