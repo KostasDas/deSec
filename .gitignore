@@ -19,3 +19,4 @@ docs/
 .env.*
 !.env.example
 AGENTS.md
+.DS_Store
