@@ -7,6 +7,7 @@ import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
 contract DeSecRegistry {
     GuardianAdapterFactory public immutable factory;
     uint256 public constant MINIMUM_DURATION = 7 days;
+    uint256 public constant MINIMUM_REGISTRATION_FEE = 0.01 ether;
 
     mapping(uint256 => uint256) public balances;
     mapping(uint256 => Protocol) public protocols;
@@ -23,7 +24,7 @@ contract DeSecRegistry {
     event RegistryDeployed(address indexed registry);
 
     error ZeroAddress();
-    error NoInitialDeposit();
+    error InitialDepositTooLow();
     error NoProtocolFound(uint256 id);
     error InsufficientValue(uint256 passed, uint256 required);
     error InvalidCheckInDuration(uint256 passed, uint256 minimum);
@@ -51,8 +52,8 @@ contract DeSecRegistry {
         uint256 checkInFee,
         uint256 checkInDuration
     ) public payable onlyFactory returns (uint256) {
-        if (msg.value == 0) {
-            revert NoInitialDeposit();
+        if (msg.value < MINIMUM_REGISTRATION_FEE) {
+            revert InitialDepositTooLow();
         }
         if (checkInDuration < MINIMUM_DURATION) {
             revert InvalidCheckInDuration(checkInDuration, MINIMUM_DURATION);

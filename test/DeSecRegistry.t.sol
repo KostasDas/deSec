@@ -52,7 +52,7 @@ contract DeSecRegistryTest is Test {
 
     function testRegistrationNoValue() public {
         // registration reverts if no value passed
-        vm.expectRevert(DeSecRegistry.NoInitialDeposit.selector);
+        vm.expectRevert(DeSecRegistry.InitialDepositTooLow.selector);
         factory.register(
             address(mockProtocol),
             mockProtocol.isHealthy.selector,
