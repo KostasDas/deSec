@@ -14,11 +14,12 @@ contract DeSecRegistry {
 
     struct Protocol {
         uint256 protocolId;
+        address protocol;
         bytes4 invariantSelector;
         bytes4 emergencySelector;
     }
 
-    event Registered(address indexed adapter, uint256 protocolId);
+    event Registered(address indexed adapter, address indexed protocol, uint256 protocolId);
     event RegistryDeployed(address indexed registry);
 
     error ZeroAddress();
@@ -42,6 +43,7 @@ contract DeSecRegistry {
     }
 
     function register(
+        address protocol,
         GuardianAdapter adapter,
         bytes4 invariantSelector,
         bytes4 emergencySelector,
@@ -61,13 +63,22 @@ contract DeSecRegistry {
             revert InsufficientValue(msg.value, valueRequired);
         }
 
+        // so, invariant and emergency selectors can be malicious. how do we cleanup?
+        // i will delegate this to later.
+        protocolId += 1;
         Protocol memory _p = Protocol({
-            protocolId: protocolId, invariantSelector: invariantSelector, emergencySelector: emergencySelector
+            protocolId: protocolId,
+            protocol: protocol,
+            invariantSelector: invariantSelector,
+            emergencySelector: emergencySelector
         });
         protocols[_p.protocolId] = _p;
-        protocolId += 1;
 
-        emit Registered(address(adapter), protocolId);
+        // todo: the adapter needs to perform a staticcall to the protocol's invariant selector.
+        // it will revert if any state changes
+        // adapter.staticcall(todo define method and parameters)
+
+        emit Registered(address(adapter), address(protocol), protocolId);
         return _p.protocolId;
     }
 
@@ -75,7 +86,7 @@ contract DeSecRegistry {
         Protocol memory _p = protocols[id];
         if (_p.protocolId == 0) {
             revert NoProtocolFound(id);
-        } 
+        }
         return _p;
     }
 }

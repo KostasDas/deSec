@@ -24,29 +24,43 @@ contract DeSecRegistryTest is Test {
         vm.startPrank(protocolOwner);
         DeSecRegistry registry = factory.registry();
 
-        uint256 expectedId = registry.protocolId();
+        uint256 expectedId = registry.protocolId() + 1;
         vm.expectEmit(true, true, false, false);
         emit Ownable.OwnershipTransferred(address(0), protocolOwner);
 
         vm.expectEmit(false, false, false, true, address(registry));
-        emit DeSecRegistry.Registered(address(0), expectedId + 1);
+        emit DeSecRegistry.Registered(address(0), address(mockProtocol), expectedId);
         // we need to cover the bounty plus 30 days of check in fees.
         (address adapter, uint256 protocolId) = factory.register{value: 4 ether + (1e6 wei * 30 days)}(
-            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 30 days, protocolOwner
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            4 ether,
+            1e6 wei,
+            30 days,
+            protocolOwner
         );
         vm.stopPrank();
         vm.assertTrue(adapter.code.length > 0);
         vm.assertEq(protocolOwner, GuardianAdapter(adapter).owner());
         // the resulting balance will be what's left of the initial minus the value passed.
         vm.assertEq(protocolOwner.balance, 5 ether - (4 ether + (1e6 wei * 30 days)));
-        vm.assertEq(protocolId, factory.registry().getProtocol(protocolId).protocolId);
+        DeSecRegistry.Protocol memory _p = factory.registry().getProtocol(protocolId);
+        vm.assertEq(protocolId, _p.protocolId);
+        vm.assertEq(address(mockProtocol), _p.protocol);
     }
 
     function testRegistrationNoValue() public {
         // registration reverts if no value passed
         vm.expectRevert(DeSecRegistry.NoInitialDeposit.selector);
         factory.register(
-            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 30 days, protocolOwner
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            4 ether,
+            1e6 wei,
+            30 days,
+            protocolOwner
         );
     }
 
@@ -64,7 +78,13 @@ contract DeSecRegistryTest is Test {
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, bounty, checkInFee, duration, protocolOwner
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            bounty,
+            checkInFee,
+            duration,
+            protocolOwner
         );
     }
 
@@ -82,7 +102,13 @@ contract DeSecRegistryTest is Test {
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, bounty, checkInFee, duration, protocolOwner
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            bounty,
+            checkInFee,
+            duration,
+            protocolOwner
         );
     }
 
@@ -93,7 +119,13 @@ contract DeSecRegistryTest is Test {
         );
         vm.expectRevert(expectedError);
         factory.register{value: 4 ether + (1e6 wei * 1 days)}(
-            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 1 days, protocolOwner
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            4 ether,
+            1e6 wei,
+            1 days,
+            protocolOwner
         );
     }
 }
