@@ -14,8 +14,10 @@ contract GuardianAdapterFactory {
         //Todo pass the registry to the executor when ready
         executor = new GuardianExecutor();
     }
+
     /**
-     * Main protocol function. registers
+     * Main protocol function.
+     * Creates an adapter and registers the protocol to our guardian
      */
     function register(
         bytes4 invariantSelector,
@@ -24,12 +26,14 @@ contract GuardianAdapterFactory {
         uint256 checkInFee,
         uint256 checkInDuration,
         address owner
-    ) public payable returns (address) {
+    ) public payable returns (address, uint256) {
         if (owner == address(0)) {
             owner = msg.sender;
         }
         GuardianAdapter _adapter = new GuardianAdapter(owner, executor, registry);
-        registry.register{value: msg.value}(_adapter, invariantSelector, emergencySelector, bounty, checkInFee, checkInDuration);
-        return address(_adapter);
+        uint256 protocolId = registry.register{value: msg.value}(
+            _adapter, invariantSelector, emergencySelector, bounty, checkInFee, checkInDuration
+        );
+        return (address(_adapter), protocolId);
     }
 }

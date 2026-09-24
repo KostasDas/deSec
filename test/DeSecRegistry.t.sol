@@ -27,35 +27,26 @@ contract DeSecRegistryTest is Test {
         uint256 expectedId = registry.protocolId();
         vm.expectEmit(true, true, false, false);
         emit Ownable.OwnershipTransferred(address(0), protocolOwner);
-        
+
         vm.expectEmit(false, false, false, true, address(registry));
-        emit DeSecRegistry.Registered(address(0), expectedId);
+        emit DeSecRegistry.Registered(address(0), expectedId + 1);
         // we need to cover the bounty plus 30 days of check in fees.
-        address adapter = factory.register{value: 4 ether + (1e6 wei * 30 days)}(
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            30 days,
-            protocolOwner
+        (address adapter, uint256 protocolId) = factory.register{value: 4 ether + (1e6 wei * 30 days)}(
+            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 30 days, protocolOwner
         );
+        vm.stopPrank();
         vm.assertTrue(adapter.code.length > 0);
         vm.assertEq(protocolOwner, GuardianAdapter(adapter).owner());
         // the resulting balance will be what's left of the initial minus the value passed.
         vm.assertEq(protocolOwner.balance, 5 ether - (4 ether + (1e6 wei * 30 days)));
-        vm.stopPrank();
+        vm.assertEq(protocolId, factory.registry().getProtocol(protocolId).protocolId);
     }
 
     function testRegistrationNoValue() public {
         // registration reverts if no value passed
         vm.expectRevert(DeSecRegistry.NoInitialDeposit.selector);
         factory.register(
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            30 days,
-            protocolOwner
+            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 30 days, protocolOwner
         );
     }
 
@@ -68,18 +59,13 @@ contract DeSecRegistryTest is Test {
         uint256 expectedValue = bounty + (checkInFee * duration);
         uint256 passed = 4 ether + checkInFee;
 
-        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InsufficientValue.selector, passed, expectedValue);
+        bytes memory expectedError =
+            abi.encodeWithSelector(DeSecRegistry.InsufficientValue.selector, passed, expectedValue);
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            duration,
-            protocolOwner
+            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, bounty, checkInFee, duration, protocolOwner
         );
-
     }
 
     function testRegistrationInsufficientCheckInValue() public {
@@ -91,30 +77,23 @@ contract DeSecRegistryTest is Test {
         uint256 expectedValue = bounty + (checkInFee * duration);
         uint256 passed = 4 ether + checkInFee;
 
-        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InsufficientValue.selector, passed, expectedValue);
+        bytes memory expectedError =
+            abi.encodeWithSelector(DeSecRegistry.InsufficientValue.selector, passed, expectedValue);
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            duration,
-            protocolOwner
+            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, bounty, checkInFee, duration, protocolOwner
         );
     }
 
     function testRegistrationInvalidDuration() public {
         // someone tries to register with less than the minimum duration
-        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InvalidCheckInDuration.selector, 1 days, factory.registry().MINIMUM_DURATION());
+        bytes memory expectedError = abi.encodeWithSelector(
+            DeSecRegistry.InvalidCheckInDuration.selector, 1 days, factory.registry().MINIMUM_DURATION()
+        );
         vm.expectRevert(expectedError);
         factory.register{value: 4 ether + (1e6 wei * 1 days)}(
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            1 days,
-            protocolOwner
+            mockProtocol.isHealthy.selector, mockProtocol.pause.selector, 4 ether, 1e6 wei, 1 days, protocolOwner
         );
     }
 }
