@@ -6,6 +6,7 @@ import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
 
 contract DeSecRegistry {
     GuardianAdapterFactory public immutable factory;
+    uint256 public constant MINIMUM_DURATION = 7 days;
 
     mapping(uint256 => uint256) public balances;
     mapping(uint256 => Protocol) public protocols;
@@ -20,7 +21,9 @@ contract DeSecRegistry {
 
     error ZeroAddress();
     error OnlyFactoryAllowed();
-    error InsufficientBounty(uint256 passed, uint256 required);
+    error NoInitialDeposit();
+    error InsufficientValue(uint256 passed, uint256 required);
+    error InvalidCheckInDuration(uint256 passed, uint256 minimum);
 
     constructor(GuardianAdapterFactory _factory) {
         if (address(_factory) == address(0)) {
@@ -42,7 +45,19 @@ contract DeSecRegistry {
         if (msg.sender != address(factory)) {
             revert OnlyFactoryAllowed();
         }
+        if (msg.value == 0 ) {
+            revert NoInitialDeposit();
+        }
+        if (checkInDuration < MINIMUM_DURATION) {
+            revert InvalidCheckInDuration(checkInDuration, MINIMUM_DURATION);
+        }
+
+        uint256 valueRequired = bounty + (checkInFee * checkInDuration);
+        if (msg.value < valueRequired) {
+            revert InsufficientValue(msg.value, valueRequired);
+        }
 
         emit Registered(address(adapter), protocolId);
     }
+
 }
