@@ -154,24 +154,21 @@ contract DeSecRegistry {
         emit BalanceUpdated(_protocolId, _previousBalance, _p.balance);
     }
 
-    function addCheckInFee(uint256 _protocolId, uint256 _fee, uint256 _duration) public payable {
+    function donate(uint256 _protocolId) external payable {
+        Protocol storage _p = protocols[_protocolId];
+        if (_p.protocolId == 0) {
+            revert ProtocolNotFound(protocolId);
+        }
         if (msg.value == 0) {
             revert ValueRequired();
         }
-        if (_duration == 0) {
-            _duration = MINIMUM_INTERVAL;
-        }
+        uint256 previous = _p.balance;
+        _p.balance += msg.value;
 
-        Protocol memory _p = getProtocol(_protocolId);
-        uint256 _existingFee = _p.checkInFee;
-        uint256 _endTime = _p.lastCheckTime;
-
-        //todo think about this, it is not that simple. we need to start doing some math
-        // _p.balance += msg.value;
-        // _p.bounty += msg.value;
+        emit BalanceUpdated(_protocolId, previous, _p.balance);
     }
 
-    function remainingCheckIns(uint256 _protocolId) public view returns (uint256) {
+    function remainingCheckIns(uint256 _protocolId) external view returns (uint256) {
         Protocol storage _p = protocols[_protocolId];
         if (_p.protocolId == 0) {
             revert ProtocolNotFound(protocolId);
@@ -183,7 +180,7 @@ contract DeSecRegistry {
         return checkInBalance / _p.checkInFee;
     }
 
-    function lastCheckIn(uint256 _protocolId) public view returns (uint256) {
+    function lastCheckIn(uint256 _protocolId) external view returns (uint256) {
         Protocol storage _p = protocols[_protocolId];
         if (_p.protocolId == 0) {
             revert ProtocolNotFound(protocolId);

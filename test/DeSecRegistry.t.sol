@@ -33,23 +33,31 @@ contract DeSecRegistryTest is Test {
         vm.expectEmit(false, false, false, true, address(registry));
         emit DeSecRegistry.Registered(address(0), address(mockProtocol), expectedId);
         // we need to cover the bounty plus 30 days of check in fees.
-        (address adapter, uint256 protocolId) = factory.register{value: 4 ether + (1e6 wei * 30 days)}(
+        (address adapter, uint256 protocolId) = factory.register{value: 5 ether}(
             address(mockProtocol),
             mockProtocol.isHealthy.selector,
             mockProtocol.pause.selector,
             4 ether,
             1e6 wei,
-            30 days,
+            5 minutes,
             protocolOwner
         );
         vm.stopPrank();
         vm.assertTrue(adapter.code.length > 0);
         vm.assertEq(protocolOwner, GuardianAdapter(adapter).owner());
-        // the resulting balance will be what's left of the initial minus the value passed.
-        vm.assertEq(protocolOwner.balance, 5 ether - (4 ether + (1e6 wei * 30 days)));
+        vm.assertEq(protocolOwner.balance, 0);
         DeSecRegistry.Protocol memory _p = factory.registry().getProtocol(protocolId);
         vm.assertEq(protocolId, _p.protocolId);
         vm.assertEq(address(mockProtocol), _p.protocol);
+        vm.assertEq(protocolOwner, _p.owner);
+        vm.assertEq(4 ether, _p.bounty);
+        vm.assertEq(5 minutes, _p.interval);
+        vm.assertEq(1e6, _p.checkInFee);
+        vm.assertEq(5 ether, _p.balance);
+        vm.assertEq(mockProtocol.isHealthy.selector, _p.invariantSelector);
+        vm.assertEq(mockProtocol.pause.selector, _p.emergencySelector);
+        vm.assertEq(block.timestamp, _p.lastCheckTime);
+        vm.assertEq(block.timestamp, _p.registrationTime);
     }
 
     function testRegistrationNoValue() public {
