@@ -57,7 +57,11 @@ contract DeSecRegistryTest is Test {
         uint256 checkInFee = 1e6 wei;
         // registration reverts if no value passed
         bytes memory expectedError = abi.encodeWithSelector(
-            DeSecRegistry.InvalidRegistrationAmounts.selector, 0, bounty, checkInFee, factory.registry().MINIMUM_REGISTRATION_FEE()
+            DeSecRegistry.InvalidRegistrationAmounts.selector,
+            0,
+            bounty,
+            checkInFee,
+            factory.registry().MINIMUM_REGISTRATION_FEE()
         );
         vm.expectRevert(expectedError);
         factory.register(
