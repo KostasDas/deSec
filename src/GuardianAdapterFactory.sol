@@ -20,20 +20,20 @@ contract GuardianAdapterFactory {
      * Creates an adapter and registers the protocol to our guardian
      */
     function register(
-        address protocol,
-        bytes4 invariantSelector,
-        bytes4 emergencySelector,
-        uint256 bounty,
-        uint256 checkInFee,
-        uint256 checkInDuration,
-        address owner
+        address _protocol,
+        bytes4 _invariantSelector,
+        bytes4 _emergencySelector,
+        uint256 _bounty,
+        uint256 _checkInFee,
+        uint256 _interval,
+        address _owner
     ) public payable returns (address, uint256) {
-        if (owner == address(0)) {
-            owner = msg.sender;
+        if (_owner == address(0)) {
+            _owner = msg.sender;
         }
-        GuardianAdapter _adapter = new GuardianAdapter(owner, executor, registry);
+        GuardianAdapter _adapter = new GuardianAdapter(_owner, executor, registry);
         uint256 protocolId = registry.register{value: msg.value}(
-            protocol, _adapter, invariantSelector, emergencySelector, bounty, checkInFee, checkInDuration
+            _protocol, _owner, _adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
         );
         return (address(_adapter), protocolId);
     }
