@@ -25,16 +25,16 @@ contract GuardianAdapterFactory {
         bytes4 _emergencySelector,
         uint256 _bounty,
         uint256 _checkInFee,
-        uint256 _interval,
+        uint32 _interval,
         address _owner
     ) public payable returns (address, uint256) {
         if (_owner == address(0)) {
             _owner = msg.sender;
         }
-        GuardianAdapter _adapter = new GuardianAdapter(_owner, executor, registry);
-        uint256 protocolId = registry.register{value: msg.value}(
-            _protocol, _owner, _adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
+        GuardianAdapter adapter = new GuardianAdapter(_owner, executor, registry);
+        uint256 id = registry.register{value: msg.value}(
+            _protocol, _owner, adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
         );
-        return (address(_adapter), protocolId);
+        return (address(adapter), id);
     }
 }

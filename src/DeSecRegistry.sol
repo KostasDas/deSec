@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {GuardianAdapter} from "./GuardianAdapter.sol";
 import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
 
-contract DeSecRegistry {
-    uint256 public constant MINIMUM_INTERVAL = 1 minutes;
+contract DeSecRegistry is ReentrancyGuard {
+    uint32 public constant MINIMUM_INTERVAL = 1 minutes;
     uint256 public constant MINIMUM_REGISTRATION_FEE = 0.01 ether;
     GuardianAdapterFactory public immutable factory;
 
@@ -18,18 +19,21 @@ contract DeSecRegistry {
         uint256 bounty;
         uint256 checkInFee;
         uint256 lastCheckTime;
-        uint256 interval;
         uint256 registrationTime;
         address protocol;
         address owner;
         bytes4 invariantSelector;
         bytes4 emergencySelector;
+        uint32 interval;
     }
 
     event Registered(address indexed adapter, address indexed protocol, uint256 indexed protocolId);
     event RegistryDeployed(address indexed registry);
-    event BountyUpdated(uint256 indexed protocolId, uint256 _previous, uint256 _new);
-    event BalanceUpdated(uint256 indexed protocolId, uint256 _previous, uint256 _new);
+    event BountyUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
+    event BalanceUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
+    event ProtocolDeregistered(uint256 indexed protocolId);
+    event CheckInFeeUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
+    event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
 
     error ZeroAddress();
     error ValueRequired();
@@ -38,6 +42,8 @@ contract DeSecRegistry {
     );
     error ProtocolNotFound(uint256 id);
     error InvalidIntervalDuration(uint256 passed, uint256 minimum);
+    error ActionFailed(bytes data);
+    error InSufficientWithdrawableBalance(uint256 passed, uint256 available);
 
     modifier onlyFactory() {
         require(msg.sender == address(factory));
@@ -45,8 +51,8 @@ contract DeSecRegistry {
     }
 
     modifier onlyOwner(uint256 _protocolId) {
-        Protocol memory protocol = getProtocol(_protocolId);
-        require(protocol.owner == msg.sender);
+        address owner = protocols[_protocolId].owner;
+        require(owner == msg.sender);
         _;
     }
 
@@ -82,7 +88,7 @@ contract DeSecRegistry {
         bytes4 _emergencySelector,
         uint256 _bounty,
         uint256 _checkInFee,
-        uint256 _interval
+        uint32 _interval
     ) public payable onlyFactory returns (uint256) {
         if (
             msg.value < MINIMUM_REGISTRATION_FEE || _bounty < MINIMUM_REGISTRATION_FEE
@@ -105,7 +111,7 @@ contract DeSecRegistry {
         // so, invariant and emergency selectors can be malicious. how do we protect? what assumptions are safe to make?
         // i will delegate this to later.
         protocolId += 1;
-        Protocol memory _p = Protocol({
+        Protocol memory p = Protocol({
             protocolId: protocolId,
             balance: msg.value,
             bounty: _bounty,
@@ -118,73 +124,122 @@ contract DeSecRegistry {
             invariantSelector: _invariantSelector,
             emergencySelector: _emergencySelector
         });
-        protocols[_p.protocolId] = _p;
+        protocols[p.protocolId] = p;
 
         // todo: the adapter needs to perform a staticcall to the protocol's invariant selector.
         // it will revert if any state changes
         // adapter.staticcall(todo define method and parameters)
 
-        emit Registered(address(_adapter), address(_protocol), protocolId);
-        return _p.protocolId;
+        emit Registered(address(_adapter), _protocol, protocolId);
+        return p.protocolId;
     }
 
     function getProtocol(uint256 _id) public view returns (Protocol memory) {
-        Protocol memory _p = protocols[_id];
-        if (_p.protocolId == 0) {
+        Protocol memory p = protocols[_id];
+        if (p.protocolId == 0) {
             revert ProtocolNotFound(_id);
         }
-        return _p;
+        return p;
     }
 
-    function addBounty(uint256 _protocolId) public payable {
+    function addBounty(uint256 _protocolId) public payable onlyOwner(_protocolId) {
         if (msg.value == 0) {
             revert ValueRequired();
         }
-        Protocol storage _p = protocols[_protocolId];
-        if (_p.protocolId == 0) {
-            revert ProtocolNotFound(protocolId);
-        }
-        uint256 _previousBounty = _p.bounty;
-        uint256 _previousBalance = _p.balance;
+        Protocol storage p = protocols[_protocolId];
+        uint256 previousBounty = p.bounty;
+        uint256 previousBalance = p.balance;
 
-        protocols[_protocolId].bounty += msg.value;
-        protocols[_protocolId].balance += msg.value;
+        p.bounty += msg.value;
+        p.balance += msg.value;
 
-        emit BountyUpdated(_protocolId, _previousBounty, _p.bounty);
-        emit BalanceUpdated(_protocolId, _previousBalance, _p.balance);
+        emit BountyUpdated(_protocolId, previousBounty, p.bounty);
+        emit BalanceUpdated(_protocolId, previousBalance, p.balance);
     }
 
-    function donate(uint256 _protocolId) external payable {
-        Protocol storage _p = protocols[_protocolId];
-        if (_p.protocolId == 0) {
-            revert ProtocolNotFound(protocolId);
-        }
+    function topUp(uint256 _protocolId) external payable onlyOwner(_protocolId) {
+        Protocol storage p = protocols[_protocolId];
         if (msg.value == 0) {
             revert ValueRequired();
         }
-        uint256 previous = _p.balance;
-        _p.balance += msg.value;
+        uint256 previous = p.balance;
+        p.balance += msg.value;
 
-        emit BalanceUpdated(_protocolId, previous, _p.balance);
+        emit BalanceUpdated(_protocolId, previous, p.balance);
     }
 
     function remainingCheckIns(uint256 _protocolId) external view returns (uint256) {
-        Protocol storage _p = protocols[_protocolId];
-        if (_p.protocolId == 0) {
-            revert ProtocolNotFound(protocolId);
+        Protocol storage p = protocols[_protocolId];
+        if (p.protocolId == 0) {
+            revert ProtocolNotFound(_protocolId);
         }
-        if (_p.balance <= _p.bounty || _p.checkInFee == 0) {
+        if (p.balance <= p.bounty || p.checkInFee == 0) {
             return 0;
         }
-        uint256 checkInBalance = _p.balance - _p.bounty;
-        return checkInBalance / _p.checkInFee;
+        uint256 checkInBalance = p.balance - p.bounty;
+        return checkInBalance / p.checkInFee;
     }
 
     function lastCheckIn(uint256 _protocolId) external view returns (uint256) {
-        Protocol storage _p = protocols[_protocolId];
-        if (_p.protocolId == 0) {
-            revert ProtocolNotFound(protocolId);
+        Protocol storage p = protocols[_protocolId];
+        if (p.protocolId == 0) {
+            revert ProtocolNotFound(_protocolId);
         }
-        return _p.lastCheckTime;
+        return p.lastCheckTime;
+    }
+
+    /**
+     * Protocol Owner actions
+     */
+
+    function deRegister(uint256 _protocolId) public onlyOwner(_protocolId) nonReentrant {
+        //todo perfom checks that we don't currently have about the protocol's state. if it's pending
+        // a bounty payout it should not be allowed to deregister
+        Protocol storage p = protocols[_protocolId];
+        uint256 balance = p.balance;
+        delete protocols[_protocolId];
+        (bool success, bytes memory data) = msg.sender.call{value: balance}("");
+        if (success) {
+            emit ProtocolDeregistered(_protocolId);
+            return;
+        }
+        revert ActionFailed(data);
+    }
+
+    function updateCheckInFee(uint256 _protocolId, uint256 _fee) public onlyOwner(_protocolId) {
+        Protocol storage p = protocols[_protocolId];
+        uint256 previous = p.checkInFee;
+        p.checkInFee = _fee; // we allow _fee to be 0
+        emit CheckInFeeUpdated(_protocolId, previous, _fee);
+    }
+
+    function updateInterval(uint256 _protocolId, uint32 _interval) public onlyOwner(_protocolId) {
+        Protocol storage p = protocols[_protocolId];
+        if (_interval < MINIMUM_INTERVAL) {
+            revert InvalidIntervalDuration(_interval, MINIMUM_INTERVAL);
+        }
+        uint256 previous = p.interval;
+        p.interval = _interval;
+        emit IntervalUpdated(_protocolId, previous, _interval);
+    }
+
+    function withdraw(uint256 _protocolId, uint256 _amount) public onlyOwner(_protocolId) nonReentrant {
+        Protocol storage p = protocols[_protocolId];
+        uint256 previousBalance = p.balance;
+        uint256 availableBalance = p.balance - p.bounty;
+        if (_amount == 0 ) {
+            revert ValueRequired();
+        }
+        if (availableBalance < _amount) {
+            revert InSufficientWithdrawableBalance(_amount, availableBalance);
+        }
+        p.balance -= _amount;
+        assert(p.balance >= p.bounty);
+        (bool success, bytes memory data) = msg.sender.call{value: _amount}("");
+        if (success) {
+            emit BalanceUpdated(_protocolId, previousBalance, p.balance);
+            return;
+        }
+        revert ActionFailed(data);
     }
 }

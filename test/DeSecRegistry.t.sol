@@ -32,7 +32,6 @@ contract DeSecRegistryTest is Test {
 
         vm.expectEmit(false, false, false, true, address(registry));
         emit DeSecRegistry.Registered(address(0), address(mockProtocol), expectedId);
-        // we need to cover the bounty plus 30 days of check in fees.
         (address adapter, uint256 protocolId) = factory.register{value: 5 ether}(
             address(mockProtocol),
             mockProtocol.isHealthy.selector,
@@ -110,7 +109,7 @@ contract DeSecRegistryTest is Test {
         // registration reverts if the value passed cannot satisfy the bounty
         uint256 bounty = 7 ether;
         uint256 checkInFee = 1e6 wei;
-        uint256 duration = 1 hours;
+        uint32 duration = 1 hours;
         uint256 passed = 4 ether + checkInFee;
 
         bytes memory expectedError = abi.encodeWithSelector(
@@ -137,7 +136,7 @@ contract DeSecRegistryTest is Test {
         // registration reverts if the value passed cannot satisfy the check in fees
         uint256 bounty = 1 ether;
         uint256 checkInFee = 0.01 ether;
-        uint256 interval = 1 hours;
+        uint32 interval = 1 hours;
         uint256 passed = 1.001 ether;
 
         bytes memory expectedError = abi.encodeWithSelector(
@@ -162,7 +161,7 @@ contract DeSecRegistryTest is Test {
 
     function testRegistrationInvalidDuration() public {
         // someone tries to register with less than the minimum duration
-        uint256 invalidDuration = 10 seconds;
+        uint32 invalidDuration = 10 seconds;
         bytes memory expectedError = abi.encodeWithSelector(
             DeSecRegistry.InvalidIntervalDuration.selector, invalidDuration, factory.registry().MINIMUM_INTERVAL()
         );
@@ -178,54 +177,470 @@ contract DeSecRegistryTest is Test {
         );
     }
 
-    /**
-     * When a user updates bounty, we need to update both the balance and the bounty
-     */
-    function testRandomUserUpdateBounty() public {
+    function testAddBountyOwnerIncreasesBountyAndBalance() public {
         uint256 extraBounty = 1 ether;
-        vm.deal(random, extraBounty);
-        uint256 id = register();
-        vm.startPrank(random);
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
         DeSecRegistry registry = factory.registry();
-        DeSecRegistry.Protocol memory _p = factory.registry().getProtocol(id);
-        vm.expectEmit(true, true, true, true, address(registry));
-
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
         uint256 previousBounty = _p.bounty;
         uint256 previousBalance = _p.balance;
 
-        emit DeSecRegistry.BalanceUpdated(_p.protocolId, previousBalance, previousBalance + extraBounty);
-        emit DeSecRegistry.BountyUpdated(_p.protocolId, previousBounty, previousBounty + extraBounty);
-        registry.addBounty{value: extraBounty}(_p.protocolId);
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit DeSecRegistry.BountyUpdated(id, previousBounty, previousBounty + extraBounty);
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit DeSecRegistry.BalanceUpdated(id, previousBalance, previousBalance + extraBounty);
 
-        _p = factory.registry().getProtocol(id);
+        vm.prank(protocolOwner);
+        registry.addBounty{value: extraBounty}(id);
+
+        _p = registry.getProtocol(id);
         vm.assertEq(_p.bounty, previousBounty + extraBounty);
         vm.assertEq(_p.balance, previousBalance + extraBounty);
+        vm.assertEq(protocolOwner.balance, 5 ether - extraBounty);
     }
 
-    function testUpdateBountyNoValueReverts() public {
-        uint256 id = register();
-
-        vm.startPrank(random);
+    function testAddBountyRevertsWhenNoValueSent() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
         DeSecRegistry registry = factory.registry();
-        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
-
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ValueRequired.selector);
         vm.expectRevert(expectedError);
-        registry.addBounty(_p.protocolId);
-
-        vm.stopPrank();
+        vm.prank(protocolOwner);
+        registry.addBounty(id);
     }
 
-    function register() private returns (uint256) {
-        (, uint256 protocolId) = factory.register{value: 4 ether + (1e6 wei * 30 days)}(
+    function testAddBountyRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.deal(random, 1 ether);
+        vm.expectRevert();
+        vm.prank(random);
+        registry.addBounty{value: 1 ether}(id);
+    }
+
+    function testAddBountyRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.addBounty{value: 1 ether}(nonExistentId);
+    }
+
+    function testRemainingCheckInsRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ProtocolNotFound.selector, nonExistentId);
+        vm.expectRevert(expectedError);
+        registry.remainingCheckIns(nonExistentId);
+    }
+
+    function testRemainingCheckInsReturnsZeroWhenFeeIsZero() public {
+        uint256 id = register(1 ether, 0, 1.5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.remainingCheckIns(id), 0);
+    }
+
+    function testRemainingCheckInsReturnsFundedChecks() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.remainingCheckIns(id), 1000);
+    }
+
+    function testRemainingCheckInsUpdatesWhenOwnerChangesCheckInFee() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.remainingCheckIns(id), 1000);
+        vm.prank(protocolOwner);
+        registry.updateCheckInFee(id, 0.01 ether);
+        vm.assertEq(registry.remainingCheckIns(id), 100);
+    }
+
+    function testRemainingCheckInsReturnsZeroAfterOwnerSetsFeeToZero() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertGt(registry.remainingCheckIns(id), 0);
+        vm.prank(protocolOwner);
+        registry.updateCheckInFee(id, 0);
+        vm.assertEq(registry.remainingCheckIns(id), 0);
+    }
+
+    function testUpdateCheckInFeeOwnerUpdatesFee() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.CheckInFeeUpdated(id, 0.001 ether, 0.01 ether);
+        vm.prank(protocolOwner);
+        registry.updateCheckInFee(id, 0.01 ether);
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.checkInFee, 0.01 ether);
+    }
+
+    function testUpdateCheckInFeeOwnerCanSetFeeToZero() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.prank(protocolOwner);
+        registry.updateCheckInFee(id, 0);
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.checkInFee, 0);
+    }
+
+    function testUpdateCheckInFeeRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.updateCheckInFee(id, 0.01 ether);
+    }
+
+    function testUpdateCheckInFeeRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.updateCheckInFee(nonExistentId, 0.01 ether);
+    }
+
+    function testUpdateIntervalOwnerUpdatesInterval() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.IntervalUpdated(id, 5 minutes, 10 minutes);
+        vm.prank(protocolOwner);
+        registry.updateInterval(id, 10 minutes);
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.interval, 10 minutes);
+    }
+
+    function testUpdateIntervalAllowsExactlyMinimumInterval() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        uint32 minimum = registry.MINIMUM_INTERVAL();
+        vm.prank(protocolOwner);
+        registry.updateInterval(id, minimum);
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.interval, minimum);
+    }
+
+    function testUpdateIntervalRevertsWhenBelowMinimum() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        uint32 tooShort = 30 seconds;
+        bytes memory expectedError = abi.encodeWithSelector(
+            DeSecRegistry.InvalidIntervalDuration.selector, tooShort, registry.MINIMUM_INTERVAL()
+        );
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.updateInterval(id, tooShort);
+    }
+
+    function testUpdateIntervalRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.updateInterval(id, 10 minutes);
+    }
+
+    function testUpdateIntervalRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.updateInterval(nonExistentId, 10 minutes);
+    }
+
+    function testOwnerUpdatesCheckInFeeAndIntervalTogether() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.remainingCheckIns(id), 1000);
+        vm.startPrank(protocolOwner);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.CheckInFeeUpdated(id, 0.001 ether, 0.01 ether);
+        registry.updateCheckInFee(id, 0.01 ether);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.IntervalUpdated(id, 5 minutes, 10 minutes);
+        registry.updateInterval(id, 10 minutes);
+        vm.stopPrank();
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.checkInFee, 0.01 ether);
+        vm.assertEq(_p.interval, 10 minutes);
+        vm.assertEq(registry.remainingCheckIns(id), 100);
+    }
+
+    function testDeRegisterOwnerReclaimsBalanceAndRecordIsDeleted() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.ProtocolDeregistered(id);
+        vm.prank(protocolOwner);
+        registry.deRegister(id);
+        vm.assertEq(protocolOwner.balance, 10 ether);
+        vm.assertEq(address(registry).balance, 0);
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ProtocolNotFound.selector, id);
+        vm.expectRevert(expectedError);
+        registry.getProtocol(id);
+    }
+
+    function testDeRegisterRevertsWhenOwnerCannotReceiveEther() public {
+        (, uint256 id) = factory.register{value: 5 ether}(
             address(mockProtocol),
             mockProtocol.isHealthy.selector,
             mockProtocol.pause.selector,
             4 ether,
             1e6 wei,
-            30 days,
+            5 minutes,
+            address(mockProtocol)
+        );
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
+        vm.expectRevert(expectedError);
+        vm.prank(address(mockProtocol));
+        registry.deRegister(id);
+    }
+
+    function testTopUpOwnerIncreasesBalance() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.BalanceUpdated(id, 2 ether, 3 ether);
+        vm.prank(protocolOwner);
+        registry.topUp{value: 1 ether}(id);
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(id);
+        vm.assertEq(_p.balance, 3 ether);
+        vm.assertEq(protocolOwner.balance, 4 ether);
+    }
+
+    function testTopUpRevertsWhenNoValueSent() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ValueRequired.selector);
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.topUp(id);
+    }
+
+    function testTopUpRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.deal(random, 1 ether);
+        vm.expectRevert();
+        vm.prank(random);
+        registry.topUp{value: 1 ether}(id);
+    }
+
+    function testTopUpRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.topUp{value: 1 ether}(nonExistentId);
+    }
+
+    function testTopUpExtendsRemainingCheckIns() public {
+        uint256 id = register(1 ether, 0.001 ether, 1.5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.remainingCheckIns(id), 500);
+        vm.prank(protocolOwner);
+        registry.topUp{value: 0.5 ether}(id);
+        vm.assertEq(registry.remainingCheckIns(id), 1000);
+    }
+
+    function testLastCheckInReturnsRegistrationTimestamp() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.lastCheckIn(id), block.timestamp);
+    }
+
+    function testLastCheckInRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ProtocolNotFound.selector, nonExistentId);
+        vm.expectRevert(expectedError);
+        registry.lastCheckIn(nonExistentId);
+    }
+
+    function register(uint256 bounty, uint256 checkInFee, uint256 value) private returns (uint256) {
+        (, uint256 protocolId) = factory.register{value: value}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            bounty,
+            checkInFee,
+            5 minutes,
             protocolOwner
         );
         return protocolId;
     }
+
+    function testOwnerCannotTouchAnotherProtocolsRecord() public {
+        address secondOwner = makeAddr("Second_Owner");
+        uint256 firstId = register(1 ether, 0.001 ether, 2 ether);
+        (, uint256 secondId) = factory.register{value: 2 ether}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            secondOwner
+        );
+        DeSecRegistry registry = factory.registry();
+        vm.deal(secondOwner, 1 ether);
+        vm.expectRevert();
+        vm.prank(secondOwner);
+        registry.topUp{value: 0.5 ether}(firstId);
+        vm.prank(secondOwner);
+        registry.topUp{value: 0.5 ether}(secondId);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(secondId);
+        vm.assertEq(p.balance, 2.5 ether);
+    }
+
+    function testOwnerCannotUpdateAnotherProtocolsCheckInFee() public {
+        address secondOwner = makeAddr("Second_Owner");
+        uint256 firstId = register(1 ether, 0.001 ether, 2 ether);
+        (, uint256 secondId) = factory.register{value: 2 ether}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            secondOwner
+        );
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(secondOwner);
+        registry.updateCheckInFee(firstId, 0.01 ether);
+        vm.prank(secondOwner);
+        registry.updateCheckInFee(secondId, 0.01 ether);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(secondId);
+        vm.assertEq(p.checkInFee, 0.01 ether);
+    }
+
+    function testWithdrawOwnerWithdrawsAboveBounty() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.BalanceUpdated(id, 5 ether, 4.5 ether);
+        vm.prank(protocolOwner);
+        registry.withdraw(id, 0.5 ether);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(p.balance, 4.5 ether);
+        vm.assertEq(protocolOwner.balance, 5.5 ether);
+    }
+
+    function testWithdrawAllowsExactAvailableBalance() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.prank(protocolOwner);
+        registry.withdraw(id, 1 ether);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(p.balance, p.bounty);
+        vm.assertEq(protocolOwner.balance, 6 ether);
+    }
+
+    function testWithdrawRevertsAboveAvailableBalance() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        uint256 amount = 1 ether + 1 wei;
+        bytes memory expectedError =
+            abi.encodeWithSelector(DeSecRegistry.InSufficientWithdrawableBalance.selector, amount, 1 ether);
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.withdraw(id, amount);
+    }
+
+    function testWithdrawRevertsWhenAmountIsZero() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ValueRequired.selector);
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.withdraw(id, 0);
+    }
+
+    function testWithdrawRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.withdraw(id, 0.5 ether);
+    }
+
+    function testWithdrawRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.withdraw(nonExistentId, 0.5 ether);
+    }
+
+    function testWithdrawRevertsWhenOwnerCannotReceiveEther() public {
+        (, uint256 id) = factory.register{value: 5 ether}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            4 ether,
+            1e6 wei,
+            5 minutes,
+            address(mockProtocol)
+        );
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
+        vm.expectRevert(expectedError);
+        vm.prank(address(mockProtocol));
+        registry.withdraw(id, 0.5 ether);
+    }
+
+    // ==============================================
+    // Fuzz tests
+    // ==============================================
+
+    function testFuzzWithdrawWithinAvailableBalance(uint256 amount) public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        amount = bound(amount, 1 wei, 1 ether);
+        uint256 ownerBefore = protocolOwner.balance;
+        vm.prank(protocolOwner);
+        registry.withdraw(id, amount);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(p.balance, 5 ether - amount);
+        vm.assertGe(p.balance, p.bounty);
+        vm.assertEq(protocolOwner.balance, ownerBefore + amount);
+    }
+
+    function testFuzzWithdrawRevertsAboveAvailableBalance(uint256 amount) public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        amount = bound(amount, 1 ether + 1 wei, 10 ether);
+        bytes memory expectedError =
+            abi.encodeWithSelector(DeSecRegistry.InSufficientWithdrawableBalance.selector, amount, 1 ether);
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.withdraw(id, amount);
+    }
+
+    function testFuzzRegistrationSucceedsWithValidAmounts(uint256 bounty, uint256 checkInFee, uint256 extra) public {
+        DeSecRegistry registry = factory.registry();
+        bounty = bound(bounty, registry.MINIMUM_REGISTRATION_FEE(), 100 ether);
+        checkInFee = bound(checkInFee, 0, 10 ether);
+        uint256 value = bounty + checkInFee + bound(extra, 0, 10 ether);
+
+        (address adapter, uint256 protocolId) = factory.register{value: value}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            bounty,
+            checkInFee,
+            5 minutes,
+            protocolOwner
+        );
+
+        DeSecRegistry.Protocol memory _p = registry.getProtocol(protocolId);
+        vm.assertTrue(adapter.code.length > 0);
+        vm.assertEq(_p.owner, protocolOwner);
+        vm.assertEq(_p.bounty, bounty);
+        vm.assertEq(_p.checkInFee, checkInFee);
+        vm.assertEq(_p.balance, value);
+    }
 }
+

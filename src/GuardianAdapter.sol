@@ -13,5 +13,5 @@ contract GuardianAdapter is Ownable2Step, AccessControl {
 
     event AdapterDeployed();
 
-    constructor(address owner, GuardianExecutor _executor, DeSecRegistry _registry) Ownable(owner) {}
+    constructor(address _owner, GuardianExecutor _executor, DeSecRegistry _registry) Ownable(_owner) {}
 }
