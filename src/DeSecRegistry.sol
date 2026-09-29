@@ -20,10 +20,10 @@ contract DeSecRegistry is ReentrancyGuard {
         uint256 checkInFee;
         uint256 lastCheckTime;
         uint256 registrationTime;
+        bytes invariantPayload;
+        bytes emergencyPayload;
         address protocol;
         GuardianAdapter adapter;
-        bytes4 invariantSelector;
-        bytes4 emergencySelector;
         uint32 interval;
     }
 
@@ -34,8 +34,8 @@ contract DeSecRegistry is ReentrancyGuard {
     event ProtocolDeregistered(uint256 indexed protocolId);
     event CheckInFeeUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
-    event InvariantUpdated(uint256 indexed protocolId, bytes4 previous, bytes4 next);
-    event EmergencyActionUpdated(uint256 indexed protocolId, bytes4 previous, bytes4 next);
+    event InvariantUpdated(uint256 indexed protocolId, bytes previous, bytes next);
+    event EmergencyActionUpdated(uint256 indexed protocolId, bytes previous, bytes next);
 
     error ZeroAddress();
     error ValueRequired();
@@ -79,8 +79,8 @@ contract DeSecRegistry is ReentrancyGuard {
      *
      * @param _protocol the protocol registering
      * @param _adapter the adapter deployed by the factory
-     * @param _invariantSelector  the invariant the adapter will check that must never be broken
-     * @param _emergencySelector  what the adapter will call in case the invariant is broken
+     * @param _invariantPayload  the invariant the adapter will check that must never be broken
+     * @param _emergencyActionPayload  what the adapter will call in case the invariant is broken
      * @param _bounty how much the protocol will pay for the report
      * @param _checkInFee how much the protocol pays for a check in (an invariant checl)
      * @param _interval  how often the protocol allows checkins
@@ -88,8 +88,8 @@ contract DeSecRegistry is ReentrancyGuard {
     function register(
         address _protocol,
         GuardianAdapter _adapter,
-        bytes4 _invariantSelector,
-        bytes4 _emergencySelector,
+        bytes calldata _invariantPayload,
+        bytes calldata _emergencyActionPayload,
         uint256 _bounty,
         uint256 _checkInFee,
         uint32 _interval
@@ -111,7 +111,7 @@ contract DeSecRegistry is ReentrancyGuard {
         }
         // so, invariant and emergency selectors can be malicious. how do we protect? what assumptions are safe to make?
         // i will delegate this to later.
-        invariantCheck(_protocol, _invariantSelector);
+        invariantCheck(_protocol, _invariantPayload);
 
         protocolId += 1;
         Protocol memory p = Protocol({
@@ -124,8 +124,8 @@ contract DeSecRegistry is ReentrancyGuard {
             registrationTime: block.timestamp,
             protocol: _protocol,
             adapter: _adapter,
-            invariantSelector: _invariantSelector,
-            emergencySelector: _emergencySelector
+            invariantPayload: _invariantPayload,
+            emergencyPayload: _emergencyActionPayload
         });
         protocols[p.protocolId] = p;
 
@@ -242,29 +242,28 @@ contract DeSecRegistry is ReentrancyGuard {
         revert ActionFailed(data);
     }
 
-    function updateInvariant(uint256 _protocolId, bytes4 _newInvariant) public onlyOwner(_protocolId) {
+    function updateInvariant(uint256 _protocolId, bytes calldata _newInvariant) public onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, _newInvariant);
-        bytes4 previous = p.invariantSelector;
-        p.invariantSelector = _newInvariant;
+        bytes memory previous = p.invariantPayload;
+        p.invariantPayload = _newInvariant;
 
         emit InvariantUpdated(_protocolId, previous, _newInvariant);
     }
 
-    function updateEmergencyAction(uint256 _protocolId, bytes4 _newEmergency) public onlyOwner(_protocolId) {
+    function updateEmergencyAction(uint256 _protocolId, bytes calldata _newEmergency) public onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
-        bytes4 previous = p.emergencySelector;
-        p.emergencySelector = _newEmergency;
+        bytes memory previous = p.emergencyPayload;
+        p.emergencyPayload = _newEmergency;
 
         emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
-    function invariantCheck(address _protocol, bytes4 _invariant) internal view {
+    function invariantCheck(address _protocol, bytes calldata _invariant) internal view {
         if (_protocol.code.length == 0) {
             revert NoCodeAtTarget(_protocol);
         }
-        bytes memory payload = abi.encodePacked(_invariant);
-        (bool ok, bytes memory result) = _protocol.staticcall(payload);
+        (bool ok, bytes memory result) = _protocol.staticcall(_invariant);
         if (!ok) {
             revert ActionFailed(result);
         }

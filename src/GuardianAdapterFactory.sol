@@ -21,8 +21,8 @@ contract GuardianAdapterFactory {
      */
     function register(
         address _protocol,
-        bytes4 _invariantSelector,
-        bytes4 _emergencySelector,
+        bytes calldata _invariantPayload,
+        bytes calldata _emergencyActionPayload,
         uint256 _bounty,
         uint256 _checkInFee,
         uint32 _interval,
@@ -33,7 +33,7 @@ contract GuardianAdapterFactory {
         }
         GuardianAdapter adapter = new GuardianAdapter(_owner, executor, registry);
         uint256 id = registry.register{value: msg.value}(
-            _protocol, adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
+            _protocol, adapter, _invariantPayload, _emergencyActionPayload, _bounty, _checkInFee, _interval
         );
         return (address(adapter), id);
     }

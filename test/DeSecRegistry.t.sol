@@ -16,6 +16,10 @@ contract DeSecRegistryTest is Test {
     address random = makeAddr("Random_Account");
     MockProtocol mockProtocol;
     GuardianAdapterFactory private factory;
+    bytes invariantPayload = abi.encodeCall(MockProtocol.isHealthy, ());
+    bytes emergencyPayload = abi.encodeCall(MockProtocol.pause, ());
+    bytes healthyPayload = abi.encodeCall(MockProtocol.checkHealth, ());
+    bytes breakHealthPayload = abi.encodeCall(MockProtocol.breakHealth, ());
 
     function setUp() public {
         factory = new GuardianAdapterFactory();
@@ -35,13 +39,7 @@ contract DeSecRegistryTest is Test {
         vm.expectEmit(false, false, false, true, address(registry));
         emit DeSecRegistry.Registered(address(0), address(mockProtocol), expectedId);
         (address adapter, uint256 protocolId) = factory.register{value: 5 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 1e6 wei, 5 minutes, protocolOwner
         );
         vm.stopPrank();
         vm.assertTrue(adapter.code.length > 0);
@@ -56,8 +54,8 @@ contract DeSecRegistryTest is Test {
         vm.assertEq(5 minutes, _p.interval);
         vm.assertEq(1e6, _p.checkInFee);
         vm.assertEq(5 ether, _p.balance);
-        vm.assertEq(mockProtocol.isHealthy.selector, _p.invariantSelector);
-        vm.assertEq(mockProtocol.pause.selector, _p.emergencySelector);
+        vm.assertEq(_p.invariantPayload, invariantPayload);
+        vm.assertEq(_p.emergencyPayload, emergencyPayload);
         vm.assertEq(block.timestamp, _p.lastCheckTime);
         vm.assertEq(block.timestamp, _p.registrationTime);
     }
@@ -75,13 +73,7 @@ contract DeSecRegistryTest is Test {
         );
         vm.expectRevert(expectedError);
         factory.register(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, bounty, checkInFee, 5 minutes, protocolOwner
         );
     }
 
@@ -98,13 +90,7 @@ contract DeSecRegistryTest is Test {
         );
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            0,
-            checkInFee,
-            2 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 0, checkInFee, 2 minutes, protocolOwner
         );
     }
 
@@ -125,13 +111,7 @@ contract DeSecRegistryTest is Test {
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            duration,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, bounty, checkInFee, duration, protocolOwner
         );
     }
 
@@ -152,13 +132,7 @@ contract DeSecRegistryTest is Test {
 
         vm.expectRevert(expectedError);
         factory.register{value: passed}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            interval,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, bounty, checkInFee, interval, protocolOwner
         );
     }
 
@@ -170,13 +144,7 @@ contract DeSecRegistryTest is Test {
         );
         vm.expectRevert(expectedError);
         factory.register{value: 5 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            invalidDuration,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 1e6 wei, invalidDuration, protocolOwner
         );
     }
 
@@ -386,8 +354,8 @@ contract DeSecRegistryTest is Test {
     function testDeRegisterRevertsWhenOwnerCannotReceiveEther() public {
         (, uint256 id) = factory.register{value: 5 ether}(
             address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
+            invariantPayload,
+            emergencyPayload,
             4 ether,
             1e6 wei,
             5 minutes,
@@ -463,13 +431,7 @@ contract DeSecRegistryTest is Test {
 
     function register(uint256 bounty, uint256 checkInFee, uint256 value) private returns (uint256) {
         (, uint256 protocolId) = factory.register{value: value}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, bounty, checkInFee, 5 minutes, protocolOwner
         );
         return protocolId;
     }
@@ -478,13 +440,7 @@ contract DeSecRegistryTest is Test {
         address secondOwner = makeAddr("Second_Owner");
         uint256 firstId = register(1 ether, 0.001 ether, 2 ether);
         (, uint256 secondId) = factory.register{value: 2 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            1 ether,
-            0.001 ether,
-            5 minutes,
-            secondOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 1 ether, 0.001 ether, 5 minutes, secondOwner
         );
         DeSecRegistry registry = factory.registry();
         vm.deal(secondOwner, 1 ether);
@@ -501,13 +457,7 @@ contract DeSecRegistryTest is Test {
         address secondOwner = makeAddr("Second_Owner");
         uint256 firstId = register(1 ether, 0.001 ether, 2 ether);
         (, uint256 secondId) = factory.register{value: 2 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            1 ether,
-            0.001 ether,
-            5 minutes,
-            secondOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 1 ether, 0.001 ether, 5 minutes, secondOwner
         );
         DeSecRegistry registry = factory.registry();
         vm.expectRevert();
@@ -580,8 +530,8 @@ contract DeSecRegistryTest is Test {
     function testWithdrawRevertsWhenOwnerCannotReceiveEther() public {
         (, uint256 id) = factory.register{value: 5 ether}(
             address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
+            invariantPayload,
+            emergencyPayload,
             4 ether,
             1e6 wei,
             5 minutes,
@@ -639,7 +589,7 @@ contract DeSecRegistryTest is Test {
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.NoCodeAtTarget.selector, random);
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
-            random, bytes4(0xdeadbeef), mockProtocol.pause.selector, 1 ether, 0.001 ether, 5 minutes, protocolOwner
+            random, hex"deadbeef", emergencyPayload, 1 ether, 0.001 ether, 5 minutes, protocolOwner
         );
     }
 
@@ -649,8 +599,8 @@ contract DeSecRegistryTest is Test {
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
             address(bad),
-            bad.isHealthy.selector,
-            mockProtocol.pause.selector,
+            abi.encodeCall(MockRevertingInvariant.isHealthy, ()),
+            emergencyPayload,
             1 ether,
             0.001 ether,
             5 minutes,
@@ -662,27 +612,15 @@ contract DeSecRegistryTest is Test {
         MockGarbageInvariant garbage = new MockGarbageInvariant();
         vm.expectRevert();
         factory.register{value: 2 ether}(
-            address(garbage),
-            bytes4(0xdeadbeef),
-            mockProtocol.pause.selector,
-            1 ether,
-            0.001 ether,
-            5 minutes,
-            protocolOwner
+            address(garbage), hex"deadbeef", emergencyPayload, 1 ether, 0.001 ether, 5 minutes, protocolOwner
         );
     }
 
-    function testRegistrationRevertsWhenSelectorDoesNotExist() public {
+    function testRegistrationRevertsWhenPayloadMatchesNoFunction() public {
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
-            address(mockProtocol),
-            bytes4(0xdeadbeef),
-            mockProtocol.pause.selector,
-            1 ether,
-            0.001 ether,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), hex"deadbeef", emergencyPayload, 1 ether, 0.001 ether, 5 minutes, protocolOwner
         );
     }
 
@@ -691,13 +629,7 @@ contract DeSecRegistryTest is Test {
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InvariantCurrentlyBroken.selector);
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            1 ether,
-            0.001 ether,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 1 ether, 0.001 ether, 5 minutes, protocolOwner
         );
     }
 
@@ -705,11 +637,11 @@ contract DeSecRegistryTest is Test {
         uint256 id = register(1 ether, 0.001 ether, 2 ether);
         DeSecRegistry registry = factory.registry();
         vm.expectEmit(true, false, false, true, address(registry));
-        emit DeSecRegistry.InvariantUpdated(id, mockProtocol.isHealthy.selector, mockProtocol.healthy.selector);
+        emit DeSecRegistry.InvariantUpdated(id, invariantPayload, healthyPayload);
         vm.prank(protocolOwner);
-        registry.updateInvariant(id, mockProtocol.healthy.selector);
+        registry.updateInvariant(id, healthyPayload);
         DeSecRegistry.Protocol memory p = registry.getProtocol(id);
-        vm.assertEq(p.invariantSelector, mockProtocol.healthy.selector);
+        vm.assertEq(p.invariantPayload, healthyPayload);
     }
 
     function testUpdateInvariantRevertsWhenCalledByNonOwner() public {
@@ -717,7 +649,7 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         vm.expectRevert();
         vm.prank(random);
-        registry.updateInvariant(id, mockProtocol.healthy.selector);
+        registry.updateInvariant(id, healthyPayload);
     }
 
     function testUpdateInvariantRevertsWhenProtocolDoesNotExist() public {
@@ -725,7 +657,7 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         vm.expectRevert();
         vm.prank(protocolOwner);
-        registry.updateInvariant(nonExistentId, mockProtocol.healthy.selector);
+        registry.updateInvariant(nonExistentId, healthyPayload);
     }
 
     function testUpdateInvariantRevertsWhenNewInvariantIsBroken() public {
@@ -735,27 +667,27 @@ contract DeSecRegistryTest is Test {
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InvariantCurrentlyBroken.selector);
         vm.expectRevert(expectedError);
         vm.prank(protocolOwner);
-        registry.updateInvariant(id, mockProtocol.isHealthy.selector);
+        registry.updateInvariant(id, invariantPayload);
     }
 
-    function testUpdateInvariantRevertsWhenSelectorDoesNotExist() public {
+    function testUpdateInvariantRevertsWhenPayloadMatchesNoFunction() public {
         uint256 id = register(1 ether, 0.001 ether, 2 ether);
         DeSecRegistry registry = factory.registry();
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
         vm.expectRevert(expectedError);
         vm.prank(protocolOwner);
-        registry.updateInvariant(id, bytes4(0xdeadbeef));
+        registry.updateInvariant(id, hex"deadbeef");
     }
 
-    function testUpdateEmergencyActionOwnerUpdatesSelector() public {
+    function testUpdateEmergencyActionOwnerUpdatesPayload() public {
         uint256 id = register(1 ether, 0.001 ether, 2 ether);
         DeSecRegistry registry = factory.registry();
         vm.expectEmit(true, false, false, true, address(registry));
-        emit DeSecRegistry.EmergencyActionUpdated(id, mockProtocol.pause.selector, mockProtocol.breakHealth.selector);
+        emit DeSecRegistry.EmergencyActionUpdated(id, emergencyPayload, breakHealthPayload);
         vm.prank(protocolOwner);
-        registry.updateEmergencyAction(id, mockProtocol.breakHealth.selector);
+        registry.updateEmergencyAction(id, breakHealthPayload);
         DeSecRegistry.Protocol memory p = registry.getProtocol(id);
-        vm.assertEq(p.emergencySelector, mockProtocol.breakHealth.selector);
+        vm.assertEq(p.emergencyPayload, breakHealthPayload);
     }
 
     function testUpdateEmergencyActionRevertsWhenCalledByNonOwner() public {
@@ -763,7 +695,7 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         vm.expectRevert();
         vm.prank(random);
-        registry.updateEmergencyAction(id, mockProtocol.breakHealth.selector);
+        registry.updateEmergencyAction(id, breakHealthPayload);
     }
 
     function testUpdateEmergencyActionRevertsWhenProtocolDoesNotExist() public {
@@ -771,7 +703,7 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         vm.expectRevert();
         vm.prank(protocolOwner);
-        registry.updateEmergencyAction(nonExistentId, mockProtocol.breakHealth.selector);
+        registry.updateEmergencyAction(nonExistentId, breakHealthPayload);
     }
 
     // ==============================================
@@ -809,13 +741,7 @@ contract DeSecRegistryTest is Test {
         uint256 value = bounty + checkInFee + bound(extra, 0, 10 ether);
 
         (address adapter, uint256 protocolId) = factory.register{value: value}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            bounty,
-            checkInFee,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, bounty, checkInFee, 5 minutes, protocolOwner
         );
 
         DeSecRegistry.Protocol memory _p = registry.getProtocol(protocolId);

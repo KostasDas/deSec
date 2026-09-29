@@ -30,5 +30,7 @@ contract GuardianAdapter is Ownable2Step, AccessControl {
         emit AdapterDeployed(address(this));
     }
 
-
+    function callEmergencyFunction(address protocol, bytes calldata payload) external onlyExecutor {
+        (bool success,) = protocol.call(payload);
+    }
 }

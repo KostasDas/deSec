@@ -17,6 +17,10 @@ contract MockProtocol is AccessControl {
         return healthy;
     }
 
+    function checkHealth() external view returns (bool) {
+        return healthy;
+    }
+
     function breakHealth() external {
         healthy = false;
     }

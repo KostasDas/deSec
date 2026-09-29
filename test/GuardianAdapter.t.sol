@@ -15,6 +15,8 @@ contract GuardianAdapterTest is Test {
     GuardianAdapterFactory private factory;
     GuardianAdapter adapter;
     uint256 protocolId;
+    bytes invariantPayload = abi.encodeCall(MockProtocol.isHealthy, ());
+    bytes emergencyPayload = abi.encodeCall(MockProtocol.pause, ());
 
     function setUp() public {
         factory = new GuardianAdapterFactory();
@@ -24,13 +26,7 @@ contract GuardianAdapterTest is Test {
 
         vm.prank(protocolOwner);
         (address _adapter, uint256 _protocolId) = factory.register{value: 5 ether}(
-            address(mockProtocol),
-            mockProtocol.isHealthy.selector,
-            mockProtocol.pause.selector,
-            4 ether,
-            1e6 wei,
-            5 minutes,
-            protocolOwner
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 1e6 wei, 5 minutes, protocolOwner
         );
         adapter = GuardianAdapter(_adapter);
         protocolId = _protocolId;
