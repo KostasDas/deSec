@@ -35,6 +35,7 @@ contract DeSecRegistry is ReentrancyGuard {
     event CheckInFeeUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event InvariantUpdated(uint256 indexed protocolId, bytes4 previous, bytes4 next);
+    event EmergencyActionUpdated(uint256 indexed protocolId, bytes4 previous, bytes4 next);
 
     error ZeroAddress();
     error ValueRequired();
@@ -228,7 +229,7 @@ contract DeSecRegistry is ReentrancyGuard {
         Protocol storage p = protocols[_protocolId];
         uint256 previousBalance = p.balance;
         uint256 availableBalance = p.balance - p.bounty;
-        if (_amount == 0 ) {
+        if (_amount == 0) {
             revert ValueRequired();
         }
         if (availableBalance < _amount) {
@@ -247,10 +248,18 @@ contract DeSecRegistry is ReentrancyGuard {
     function updateInvariant(uint256 _protocolId, bytes4 _newInvariant) public onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, _newInvariant);
-        bytes4 previoys = p.invariantSelector;
+        bytes4 previous = p.invariantSelector;
         p.invariantSelector = _newInvariant;
 
-        emit InvariantUpdated(_protocolId, previoys, _newInvariant);
+        emit InvariantUpdated(_protocolId, previous, _newInvariant);
+    }
+
+    function updateEmergencyAction(uint256 _protocolId, bytes4 _newEmergency) public onlyOwner(_protocolId) {
+        Protocol storage p = protocols[_protocolId];
+        bytes4 previous = p.emergencySelector;
+        p.emergencySelector = _newEmergency;
+
+        emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
     function invariantCheck(address _protocol, bytes4 _invariant) internal view {

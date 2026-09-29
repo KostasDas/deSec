@@ -716,6 +716,33 @@ contract DeSecRegistryTest is Test {
         registry.updateInvariant(id, bytes4(0xdeadbeef));
     }
 
+    function testUpdateEmergencyActionOwnerUpdatesSelector() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.EmergencyActionUpdated(id, mockProtocol.pause.selector, mockProtocol.breakHealth.selector);
+        vm.prank(protocolOwner);
+        registry.updateEmergencyAction(id, mockProtocol.breakHealth.selector);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(p.emergencySelector, mockProtocol.breakHealth.selector);
+    }
+
+    function testUpdateEmergencyActionRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.updateEmergencyAction(id, mockProtocol.breakHealth.selector);
+    }
+
+    function testUpdateEmergencyActionRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.updateEmergencyAction(nonExistentId, mockProtocol.breakHealth.selector);
+    }
+
     // ==============================================
     // Fuzz tests
     // ==============================================
