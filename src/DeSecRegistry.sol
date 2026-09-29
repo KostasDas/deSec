@@ -34,6 +34,7 @@ contract DeSecRegistry is ReentrancyGuard {
     event ProtocolDeregistered(uint256 indexed protocolId);
     event CheckInFeeUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
+    event InvariantUpdated(uint256 indexed protocolId, bytes4 previous, bytes4 next);
 
     error ZeroAddress();
     error ValueRequired();
@@ -44,6 +45,8 @@ contract DeSecRegistry is ReentrancyGuard {
     error InvalidIntervalDuration(uint256 passed, uint256 minimum);
     error ActionFailed(bytes data);
     error InSufficientWithdrawableBalance(uint256 passed, uint256 available);
+    error NoCodeAtTarget(address target);
+    error InvariantCurrentlyBroken();
 
     modifier onlyFactory() {
         require(msg.sender == address(factory));
@@ -110,6 +113,8 @@ contract DeSecRegistry is ReentrancyGuard {
         }
         // so, invariant and emergency selectors can be malicious. how do we protect? what assumptions are safe to make?
         // i will delegate this to later.
+        invariantCheck(_protocol, _invariantSelector);
+
         protocolId += 1;
         Protocol memory p = Protocol({
             protocolId: protocolId,
@@ -125,10 +130,6 @@ contract DeSecRegistry is ReentrancyGuard {
             emergencySelector: _emergencySelector
         });
         protocols[p.protocolId] = p;
-
-        // todo: the adapter needs to perform a staticcall to the protocol's invariant selector.
-        // it will revert if any state changes
-        // adapter.staticcall(todo define method and parameters)
 
         emit Registered(address(_adapter), _protocol, protocolId);
         return p.protocolId;
@@ -241,5 +242,29 @@ contract DeSecRegistry is ReentrancyGuard {
             return;
         }
         revert ActionFailed(data);
+    }
+
+    function updateInvariant(uint256 _protocolId, bytes4 _newInvariant) public onlyOwner(_protocolId) {
+        Protocol storage p = protocols[_protocolId];
+        invariantCheck(p.protocol, _newInvariant);
+        bytes4 previoys = p.invariantSelector;
+        p.invariantSelector = _newInvariant;
+
+        emit InvariantUpdated(_protocolId, previoys, _newInvariant);
+    }
+
+    function invariantCheck(address _protocol, bytes4 _invariant) internal view {
+        if (_protocol.code.length == 0) {
+            revert NoCodeAtTarget(_protocol);
+        }
+        bytes memory payload = abi.encodePacked(_invariant);
+        (bool ok, bytes memory result) = _protocol.staticcall(payload);
+        if (!ok) {
+            revert ActionFailed(result);
+        }
+        bool healthy = abi.decode(result, (bool));
+        if (!healthy) {
+            revert InvariantCurrentlyBroken();
+        }
     }
 }

@@ -7,6 +7,8 @@ import {DeSecRegistry} from "../src/DeSecRegistry.sol";
 import {GuardianAdapterFactory} from "../src/GuardianAdapterFactory.sol";
 import {GuardianAdapter} from "../src/GuardianAdapter.sol";
 import {MockProtocol} from "./mocks/MockProtocol.sol";
+import {MockRevertingInvariant} from "./mocks/MockRevertingInvariant.sol";
+import {MockGarbageInvariant} from "./mocks/MockGarbageInvariant.sol";
 import {console} from "forge-std/console.sol";
 
 contract DeSecRegistryTest is Test {
@@ -589,6 +591,129 @@ contract DeSecRegistryTest is Test {
         vm.expectRevert(expectedError);
         vm.prank(address(mockProtocol));
         registry.withdraw(id, 0.5 ether);
+    }
+
+    // ==============================================
+    // Invariant gate tests
+    // ==============================================
+
+    function testMockProtocolBreakHealthFlipsInvariant() public {
+        vm.assertTrue(mockProtocol.isHealthy());
+        mockProtocol.breakHealth();
+        vm.assertFalse(mockProtocol.isHealthy());
+    }
+
+    function testRegistrationRevertsWhenInvariantTargetHasNoCode() public {
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.NoCodeAtTarget.selector, random);
+        vm.expectRevert(expectedError);
+        factory.register{value: 2 ether}(
+            random, bytes4(0xdeadbeef), mockProtocol.pause.selector, 1 ether, 0.001 ether, 5 minutes, protocolOwner
+        );
+    }
+
+    function testRegistrationRevertsWhenInvariantReverts() public {
+        MockRevertingInvariant bad = new MockRevertingInvariant();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
+        vm.expectRevert(expectedError);
+        factory.register{value: 2 ether}(
+            address(bad),
+            bad.isHealthy.selector,
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            protocolOwner
+        );
+    }
+
+    function testRegistrationRevertsWhenInvariantReturnsGarbage() public {
+        MockGarbageInvariant garbage = new MockGarbageInvariant();
+        vm.expectRevert();
+        factory.register{value: 2 ether}(
+            address(garbage),
+            bytes4(0xdeadbeef),
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            protocolOwner
+        );
+    }
+
+    function testRegistrationRevertsWhenSelectorDoesNotExist() public {
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
+        vm.expectRevert(expectedError);
+        factory.register{value: 2 ether}(
+            address(mockProtocol),
+            bytes4(0xdeadbeef),
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            protocolOwner
+        );
+    }
+
+    function testRegistrationRevertsWhenInvariantCurrentlyBroken() public {
+        mockProtocol.breakHealth();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InvariantCurrentlyBroken.selector);
+        vm.expectRevert(expectedError);
+        factory.register{value: 2 ether}(
+            address(mockProtocol),
+            mockProtocol.isHealthy.selector,
+            mockProtocol.pause.selector,
+            1 ether,
+            0.001 ether,
+            5 minutes,
+            protocolOwner
+        );
+    }
+
+    function testUpdateInvariantOwnerUpdatesInvariant() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.InvariantUpdated(id, mockProtocol.isHealthy.selector, mockProtocol.healthy.selector);
+        vm.prank(protocolOwner);
+        registry.updateInvariant(id, mockProtocol.healthy.selector);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(p.invariantSelector, mockProtocol.healthy.selector);
+    }
+
+    function testUpdateInvariantRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.updateInvariant(id, mockProtocol.healthy.selector);
+    }
+
+    function testUpdateInvariantRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.updateInvariant(nonExistentId, mockProtocol.healthy.selector);
+    }
+
+    function testUpdateInvariantRevertsWhenNewInvariantIsBroken() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        mockProtocol.breakHealth();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.InvariantCurrentlyBroken.selector);
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.updateInvariant(id, mockProtocol.isHealthy.selector);
+    }
+
+    function testUpdateInvariantRevertsWhenSelectorDoesNotExist() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ActionFailed.selector, bytes(""));
+        vm.expectRevert(expectedError);
+        vm.prank(protocolOwner);
+        registry.updateInvariant(id, bytes4(0xdeadbeef));
     }
 
     // ==============================================
