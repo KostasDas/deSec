@@ -50,7 +50,8 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry.Protocol memory _p = factory.registry().getProtocol(protocolId);
         vm.assertEq(protocolId, _p.protocolId);
         vm.assertEq(address(mockProtocol), _p.protocol);
-        vm.assertEq(protocolOwner, _p.owner);
+        vm.assertEq(address(_p.adapter), adapter);
+        vm.assertEq(GuardianAdapter(adapter).owner(), protocolOwner);
         vm.assertEq(4 ether, _p.bounty);
         vm.assertEq(5 minutes, _p.interval);
         vm.assertEq(1e6, _p.checkInFee);
@@ -593,6 +594,37 @@ contract DeSecRegistryTest is Test {
         registry.withdraw(id, 0.5 ether);
     }
 
+    function testOwnershipRotationThroughAdapterTransfersAdminRights() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        GuardianAdapter protocolAdapter = GuardianAdapter(address(p.adapter));
+        address newOwner = makeAddr("New_Owner");
+        vm.deal(newOwner, 1 ether);
+
+        vm.prank(protocolOwner);
+        protocolAdapter.transferOwnership(newOwner);
+
+        vm.expectRevert();
+        vm.prank(newOwner);
+        registry.topUp{value: 0.5 ether}(id);
+
+        vm.prank(newOwner);
+        protocolAdapter.acceptOwnership();
+
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit DeSecRegistry.BalanceUpdated(id, 2 ether, 2.5 ether);
+        vm.prank(newOwner);
+        registry.topUp{value: 0.5 ether}(id);
+
+        vm.expectRevert();
+        vm.prank(protocolOwner);
+        registry.topUp{value: 0.5 ether}(id);
+
+        p = registry.getProtocol(id);
+        vm.assertEq(p.balance, 2.5 ether);
+    }
+
     // ==============================================
     // Invariant gate tests
     // ==============================================
@@ -604,7 +636,6 @@ contract DeSecRegistryTest is Test {
     }
 
     function testRegistrationRevertsWhenInvariantTargetHasNoCode() public {
-        DeSecRegistry registry = factory.registry();
         bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.NoCodeAtTarget.selector, random);
         vm.expectRevert(expectedError);
         factory.register{value: 2 ether}(
@@ -789,7 +820,7 @@ contract DeSecRegistryTest is Test {
 
         DeSecRegistry.Protocol memory _p = registry.getProtocol(protocolId);
         vm.assertTrue(adapter.code.length > 0);
-        vm.assertEq(_p.owner, protocolOwner);
+        vm.assertEq(GuardianAdapter(address(_p.adapter)).owner(), protocolOwner);
         vm.assertEq(_p.bounty, bounty);
         vm.assertEq(_p.checkInFee, checkInFee);
         vm.assertEq(_p.balance, value);

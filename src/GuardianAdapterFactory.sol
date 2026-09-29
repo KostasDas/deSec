@@ -33,7 +33,7 @@ contract GuardianAdapterFactory {
         }
         GuardianAdapter adapter = new GuardianAdapter(_owner, executor, registry);
         uint256 id = registry.register{value: msg.value}(
-            _protocol, _owner, adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
+            _protocol, adapter, _invariantSelector, _emergencySelector, _bounty, _checkInFee, _interval
         );
         return (address(adapter), id);
     }

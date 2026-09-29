@@ -21,7 +21,7 @@ contract DeSecRegistry is ReentrancyGuard {
         uint256 lastCheckTime;
         uint256 registrationTime;
         address protocol;
-        address owner;
+        GuardianAdapter adapter;
         bytes4 invariantSelector;
         bytes4 emergencySelector;
         uint32 interval;
@@ -55,7 +55,9 @@ contract DeSecRegistry is ReentrancyGuard {
     }
 
     modifier onlyOwner(uint256 _protocolId) {
-        address owner = protocols[_protocolId].owner;
+        GuardianAdapter adapter = protocols[_protocolId].adapter;
+        require(address(adapter) != address(0));
+        address owner = adapter.owner();
         require(owner == msg.sender);
         _;
     }
@@ -76,7 +78,6 @@ contract DeSecRegistry is ReentrancyGuard {
      * if the check in fee is not 0, value should cover at least one check in fee.
      *
      * @param _protocol the protocol registering
-     * @param _owner the protocol owner
      * @param _adapter the adapter deployed by the factory
      * @param _invariantSelector  the invariant the adapter will check that must never be broken
      * @param _emergencySelector  what the adapter will call in case the invariant is broken
@@ -86,7 +87,6 @@ contract DeSecRegistry is ReentrancyGuard {
      */
     function register(
         address _protocol,
-        address _owner,
         GuardianAdapter _adapter,
         bytes4 _invariantSelector,
         bytes4 _emergencySelector,
@@ -109,9 +109,6 @@ contract DeSecRegistry is ReentrancyGuard {
         if (_interval < MINIMUM_INTERVAL) {
             revert InvalidIntervalDuration(_interval, MINIMUM_INTERVAL);
         }
-        if (_owner == address(0)) {
-            revert ZeroAddress();
-        }
         // so, invariant and emergency selectors can be malicious. how do we protect? what assumptions are safe to make?
         // i will delegate this to later.
         invariantCheck(_protocol, _invariantSelector);
@@ -126,7 +123,7 @@ contract DeSecRegistry is ReentrancyGuard {
             interval: _interval,
             registrationTime: block.timestamp,
             protocol: _protocol,
-            owner: _owner,
+            adapter: _adapter,
             invariantSelector: _invariantSelector,
             emergencySelector: _emergencySelector
         });
