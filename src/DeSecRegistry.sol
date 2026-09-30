@@ -22,7 +22,7 @@ contract DeSecRegistry is ReentrancyGuard {
         uint256 balance;
         uint256 bounty;
         uint256 checkInFee;
-        uint256 lastCheckTime;
+        uint256 lastCheckIn;
         uint256 registrationTime;
         bytes invariantPayload;
         bytes emergencyPayload;
@@ -147,7 +147,7 @@ contract DeSecRegistry is ReentrancyGuard {
             balance: msg.value,
             bounty: _bounty,
             checkInFee: _checkInFee,
-            lastCheckTime: block.timestamp,
+            lastCheckIn: block.timestamp,
             interval: _interval,
             registrationTime: block.timestamp,
             protocol: _protocol,
@@ -213,7 +213,7 @@ contract DeSecRegistry is ReentrancyGuard {
         if (p.protocolId == 0) {
             revert ProtocolNotFound(_protocolId);
         }
-        return p.lastCheckTime;
+        return p.lastCheckIn;
     }
 
     /**
@@ -326,6 +326,16 @@ contract DeSecRegistry is ReentrancyGuard {
         totalAwarded += p.bounty;
         p.incidentActive = true;
         emit BountyAwarded(_protocolId, _watcher, p.bounty);
+    }
+
+    function drip(uint256 _protocolId, address _watcher) public onlyExecutor {
+        Protocol storage p = protocols[_protocolId];
+        p.balance -= p.checkInFee;
+        assert(p.balance >= p.bounty);
+        p.lastCheckIn = block.timestamp;
+        totalAwarded += p.checkInFee;
+        claimableBounties[_watcher][_protocolId] += p.checkInFee;
+        emit BountyAwarded(_protocolId, _watcher, p.checkInFee);
     }
 
     function claim(uint256 _protocolId) public nonReentrant {

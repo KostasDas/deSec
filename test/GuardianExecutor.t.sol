@@ -382,6 +382,50 @@ contract GuardianExecutorTest is Test {
         vm.assertEq(address(registry).balance, 4 ether);
     }
 
+    function testFullLifecycleFromCheckInBreachToClaim() public {
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyAwarded(protocolId, watcher, 1e6 wei);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 1e6 wei);
+
+        mockProtocol.breakHealth();
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.expectEmit(true, true, false, false, address(executor));
+        emit GuardianExecutor.InvariantBreached(protocolId, address(mockProtocol));
+        vm.expectEmit(true, true, true, true, address(executor));
+        emit GuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.assertTrue(mockProtocol.paused());
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 4 ether + 1e6 wei);
+
+        vm.deal(protocolOwner, 5 ether);
+        vm.prank(protocolOwner);
+        registry.topUp{value: 5 ether}(protocolId);
+        mockProtocol.heal();
+        vm.expectEmit(true, false, false, false, address(registry));
+        emit DeSecRegistry.IncidentResolved(protocolId);
+        vm.prank(protocolOwner);
+        registry.resolveIncident(protocolId);
+
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyClaimed(protocolId, watcher, 4 ether + 1e6 wei);
+        vm.prank(watcher);
+        registry.claim(protocolId);
+        vm.assertEq(watcher.balance, 4 ether + 1e6 wei);
+        vm.assertEq(registry.totalAwarded(), 4 ether + 1e6 wei);
+
+        DeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
+        vm.assertEq(p.balance, 6 ether - 1e6 wei);
+        vm.assertFalse(p.incidentActive);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
+        vm.assertEq(address(registry).balance, 6 ether - 1e6 wei);
+    }
+
     function testReportRevertsWhileIncidentIsActive() public {
         enterIncident();
         bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.IncidentActive.selector, protocolId);
@@ -527,6 +571,147 @@ contract GuardianExecutorTest is Test {
         bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.ZeroAddress.selector);
         vm.expectRevert(expectedError);
         new GuardianExecutor(DeSecRegistry(payable(address(0))));
+    }
+
+    // ==============================================
+    // Check in
+    // ==============================================
+
+    function testCheckInDripsFeeToWatcher() public {
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyAwarded(protocolId, watcher, 1e6 wei);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 1e6 wei);
+        vm.assertEq(p.balance, 5 ether - 1e6 wei);
+        vm.assertEq(p.lastCheckIn, block.timestamp);
+        vm.assertEq(registry.totalAwarded(), 1e6 wei);
+        vm.assertEq(address(registry).balance, 5 ether);
+    }
+
+    function testCheckInFeeIsClaimableByWatcher() public {
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyClaimed(protocolId, watcher, 1e6 wei);
+        vm.prank(watcher);
+        registry.claim(protocolId);
+        vm.assertEq(watcher.balance, 1e6 wei);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
+    }
+
+    function testCheckInDripsAccumulateAcrossIntervals() public {
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 2 * 1e6 wei);
+        vm.assertEq(registry.totalAwarded(), 2 * 1e6 wei);
+    }
+
+    function testCheckInSucceedsExactlyAtIntervalBoundary() public {
+        vm.warp(block.timestamp + 5 minutes);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 1e6 wei);
+    }
+
+    function testCheckInRevertsWhenIntervalHasNotPassed() public {
+        uint256 nextInterval = block.timestamp + 5 minutes;
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.IntervalNotPassed.selector, nextInterval);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+    }
+
+    function testCheckInRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ProtocolNotFound.selector, nonExistentId);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(nonExistentId);
+    }
+
+    function testCheckInRevertsWhenIncidentIsActive() public {
+        enterIncident();
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.IncidentActive.selector, protocolId);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+    }
+
+    function testCheckInRevertsWhenProtocolHasNoCheckInFee() public {
+        vm.deal(protocolOwner, 4 ether);
+        vm.prank(protocolOwner);
+        (, uint256 id) = factory.register{value: 4 ether}(
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 0, 5 minutes, protocolOwner
+        );
+        vm.warp(block.timestamp + 5 minutes + 1);
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.NoCheckInFeeForProtocol.selector, id);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(id);
+    }
+
+    function testCheckInRevertsWhenCheckInFeesAreExhausted() public {
+        vm.deal(protocolOwner, 4.01 ether);
+        vm.prank(protocolOwner);
+        (, uint256 id) = factory.register{value: 4.01 ether}(
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 0.01 ether, 5 minutes, protocolOwner
+        );
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.prank(watcher);
+        executor.checkIn(id);
+        vm.warp(block.timestamp + 5 minutes + 1);
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.NoCheckInFeeForProtocol.selector, id);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(id);
+    }
+
+    function testCheckInRevertsWhenInvariantCallReverts() public {
+        (MockFlakyProtocol flaky, uint256 id) = registerFlakyProtocol();
+        flaky.setMode(MockFlakyProtocol.Mode.Reverting);
+        vm.warp(block.timestamp + 5 minutes + 1);
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.InvariantReverted.selector);
+        vm.expectRevert(expectedError);
+        vm.prank(watcher);
+        executor.checkIn(id);
+    }
+
+    function testCheckInRevertsWhenInvariantReturnsGarbage() public {
+        (MockFlakyProtocol flaky, uint256 id) = registerFlakyProtocol();
+        flaky.setMode(MockFlakyProtocol.Mode.Garbage);
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.expectRevert();
+        vm.prank(watcher);
+        executor.checkIn(id);
+    }
+
+    function testCheckInTriggersReportWhenInvariantIsBroken() public {
+        mockProtocol.breakHealth();
+        uint256 registrationTime = block.timestamp;
+        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.expectEmit(true, true, false, false, address(executor));
+        emit GuardianExecutor.InvariantBreached(protocolId, address(mockProtocol));
+        vm.expectEmit(true, true, true, true, address(executor));
+        emit GuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        vm.prank(watcher);
+        executor.checkIn(protocolId);
+        DeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
+        vm.assertTrue(mockProtocol.paused());
+        vm.assertTrue(p.incidentActive);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 4 ether);
+        vm.assertEq(registry.totalAwarded(), 4 ether);
+        vm.assertEq(p.balance, 1 ether);
+        vm.assertEq(p.lastCheckIn, registrationTime);
     }
 
     // ==============================================

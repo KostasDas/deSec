@@ -24,6 +24,7 @@ contract DeSecHandler is Test {
     uint256 public ghostClaimed;
     uint256 public ghostClaimableOutstanding;
     bool public reportDuringIncidentSucceeded;
+    bool public checkInDuringIncidentSucceeded;
     bool public bountyDecreased;
     mapping(uint256 => uint256) public ghostLastBounty;
 
@@ -129,6 +130,30 @@ contract DeSecHandler is Test {
         _syncBounty(id);
     }
 
+    function checkIn(uint256 idSeed, uint256 watcherSeed, uint256 warpSeed) external {
+        uint256 id = _pickLive(idSeed);
+        if (id == 0) return;
+        DeSecRegistry.Protocol memory pre = registry.getProtocol(id);
+        vm.warp(block.timestamp + bound(warpSeed, 0, 10 minutes));
+        address watcher = _pickWatcher(watcherSeed);
+        vm.prank(watcher);
+        try executor.checkIn(id) {
+            if (pre.incidentActive) {
+                checkInDuringIncidentSucceeded = true;
+                return;
+            }
+            DeSecRegistry.Protocol memory post = registry.getProtocol(id);
+            if (post.incidentActive) {
+                ghostAwarded += pre.bounty;
+                ghostClaimableOutstanding += pre.bounty;
+            } else {
+                ghostAwarded += pre.checkInFee;
+                ghostClaimableOutstanding += pre.checkInFee;
+            }
+        } catch {}
+        _syncBounty(id);
+    }
+
     function claim(uint256 idSeed, uint256 watcherSeed) external {
         uint256 id = _pickAny(idSeed);
         if (id == 0) return;
@@ -183,7 +208,7 @@ contract DeSecInvariantsTest is Test {
         registry = handler.registry();
         vm.deal(address(handler), 1_000_000 ether);
 
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = DeSecHandler.registerProtocol.selector;
         selectors[1] = DeSecHandler.topUp.selector;
         selectors[2] = DeSecHandler.addBounty.selector;
@@ -194,6 +219,7 @@ contract DeSecInvariantsTest is Test {
         selectors[7] = DeSecHandler.report.selector;
         selectors[8] = DeSecHandler.resolveIncident.selector;
         selectors[9] = DeSecHandler.claim.selector;
+        selectors[10] = DeSecHandler.checkIn.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -228,6 +254,10 @@ contract DeSecInvariantsTest is Test {
 
     function invariant_noReportSucceedsDuringIncident() public view {
         assertFalse(handler.reportDuringIncidentSucceeded());
+    }
+
+    function invariant_noCheckInSucceedsDuringIncident() public view {
+        assertFalse(handler.checkInDuringIncidentSucceeded());
     }
 
     function invariant_bountyNeverDecreases() public view {

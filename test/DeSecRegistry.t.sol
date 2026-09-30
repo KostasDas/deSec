@@ -57,7 +57,7 @@ contract DeSecRegistryTest is Test {
         vm.assertEq(5 ether, _p.balance);
         vm.assertEq(_p.invariantPayload, invariantPayload);
         vm.assertEq(_p.emergencyPayload, emergencyPayload);
-        vm.assertEq(block.timestamp, _p.lastCheckTime);
+        vm.assertEq(block.timestamp, _p.lastCheckIn);
         vm.assertEq(block.timestamp, _p.registrationTime);
     }
 

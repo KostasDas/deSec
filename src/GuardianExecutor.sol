@@ -13,6 +13,8 @@ contract GuardianExecutor is ReentrancyGuard {
     error InvariantReverted();
     error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
     error IncidentActive(uint256 protocolId);
+    error IntervalNotPassed(uint256 nextInterval);
+    error NoCheckInFeeForProtocol(uint256 protocolId);
 
     event InvariantBreached(uint256 indexed protocolId, address indexed protocol);
     event EmergencyActionCalled(uint256 indexed protocolId, address indexed protocol, bool callResult);
@@ -27,28 +29,56 @@ contract GuardianExecutor is ReentrancyGuard {
 
     function report(uint256 _protocolId) public nonReentrant returns (bool) {
         DeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
-        if (p.incidentActive) {
-            revert IncidentActive(_protocolId);
+        return _report(p);
+    }
+
+    function _report(DeSecRegistry.Protocol memory _p) internal returns (bool) {
+        if (_p.incidentActive) {
+            revert IncidentActive(_p.protocolId);
         }
-        assert(p.balance >= p.bounty);
-        address protocol = p.protocol;
-        bytes memory payload = p.invariantPayload;
-        (bool success, bytes memory returnData) = protocol.staticcall(payload);
-        if (!success) {
-            revert InvariantReverted();
-        }
-        bool healthy = abi.decode(returnData, (bool));
+        assert(_p.balance >= _p.bounty);
+        address protocol = _p.protocol;
+        bytes memory payload = _p.invariantPayload;
+        bool healthy = invariantCheck(protocol, payload);
         if (healthy) {
             revert InvariantNotBreached();
         }
-        emit InvariantBreached(_protocolId, protocol);
+
+        emit InvariantBreached(_p.protocolId, protocol);
         bool result = false;
-        if (p.emergencyPayload.length > 0) {
-            result = triggerEmergencyAction(_protocolId, p.adapter, protocol, p.emergencyPayload);
-            emit EmergencyActionCalled(_protocolId, protocol, result);
+        if (_p.emergencyPayload.length > 0) {
+            result = triggerEmergencyAction(_p.protocolId, _p.adapter, protocol, _p.emergencyPayload);
+            emit EmergencyActionCalled(_p.protocolId, protocol, result);
         }
-        registry.awardBounty(_protocolId, msg.sender);
+        registry.awardBounty(_p.protocolId, msg.sender);
         return result;
+    }
+
+    function checkIn(uint256 _protocolId) public nonReentrant {
+        DeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
+        if (p.incidentActive) {
+            revert IncidentActive(_protocolId);
+        }
+        if (registry.remainingCheckIns(_protocolId) == 0) {
+            revert NoCheckInFeeForProtocol(_protocolId);
+        }
+        if (block.timestamp < p.lastCheckIn + p.interval) {
+            revert IntervalNotPassed(p.lastCheckIn + p.interval);
+        }
+        bool healthy = invariantCheck(p.protocol, p.invariantPayload);
+        if (healthy) {
+            registry.drip(_protocolId, msg.sender);
+            return;
+        }
+        _report(p);
+    }
+
+    function invariantCheck(address _protocol, bytes memory _payload) internal view returns (bool) {
+        (bool success, bytes memory returnData) = _protocol.staticcall(_payload);
+        if (!success) {
+            revert InvariantReverted();
+        }
+        return abi.decode(returnData, (bool));
     }
 
     function triggerEmergencyAction(
