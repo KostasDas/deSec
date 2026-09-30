@@ -11,8 +11,8 @@ contract GuardianAdapterFactory {
 
     constructor() {
         registry = new DeSecRegistry(this);
-        //Todo pass the registry to the executor when ready
-        executor = new GuardianExecutor();
+        executor = new GuardianExecutor(registry);
+        registry.setExecutor(executor);
     }
 
     /**

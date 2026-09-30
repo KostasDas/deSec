@@ -2,12 +2,11 @@
 pragma solidity ^0.8.13;
 
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {GuardianExecutor} from "./GuardianExecutor.sol";
 import {DeSecRegistry} from "./DeSecRegistry.sol";
 
-contract GuardianAdapter is Ownable2Step, AccessControl {
-    bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR");
+contract GuardianAdapter is Ownable2Step {
     GuardianExecutor public immutable executor;
     DeSecRegistry public immutable registry;
 
@@ -31,6 +30,6 @@ contract GuardianAdapter is Ownable2Step, AccessControl {
     }
 
     function callEmergencyFunction(address protocol, bytes calldata payload) external onlyExecutor {
-        (bool success,) = protocol.call(payload);
+        Address.functionCall(protocol, payload);
     }
 }

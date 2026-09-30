@@ -6,6 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {DeSecRegistry} from "../src/DeSecRegistry.sol";
 import {GuardianAdapterFactory} from "../src/GuardianAdapterFactory.sol";
 import {GuardianAdapter} from "../src/GuardianAdapter.sol";
+import {GuardianExecutor} from "../src/GuardianExecutor.sol";
 import {MockProtocol} from "./mocks/MockProtocol.sol";
 import {MockRevertingInvariant} from "./mocks/MockRevertingInvariant.sol";
 import {MockGarbageInvariant} from "./mocks/MockGarbageInvariant.sol";
@@ -573,6 +574,26 @@ contract DeSecRegistryTest is Test {
 
         p = registry.getProtocol(id);
         vm.assertEq(p.balance, 2.5 ether);
+    }
+
+    function testExecutorIsWiredAtDeployment() public {
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(address(registry.executor()), address(factory.executor()));
+    }
+
+    function testSetExecutorRevertsWhenCalledByNonFactory() public {
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.setExecutor(GuardianExecutor(random));
+    }
+
+    function testSetExecutorRevertsWhenAlreadySet() public {
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ExecutorAlreadySet.selector);
+        vm.expectRevert(expectedError);
+        vm.prank(address(factory));
+        registry.setExecutor(GuardianExecutor(random));
     }
 
     // ==============================================

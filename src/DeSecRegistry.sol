@@ -4,11 +4,13 @@ pragma solidity ^0.8.13;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {GuardianAdapter} from "./GuardianAdapter.sol";
 import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
+import {GuardianExecutor} from "./GuardianExecutor.sol";
 
 contract DeSecRegistry is ReentrancyGuard {
     uint32 public constant MINIMUM_INTERVAL = 1 minutes;
     uint256 public constant MINIMUM_REGISTRATION_FEE = 0.01 ether;
     GuardianAdapterFactory public immutable factory;
+    GuardianExecutor public executor;
 
     mapping(uint256 => Protocol) public protocols;
     uint256 public protocolId;
@@ -29,6 +31,7 @@ contract DeSecRegistry is ReentrancyGuard {
 
     event Registered(address indexed adapter, address indexed protocol, uint256 indexed protocolId);
     event RegistryDeployed(address indexed registry);
+    event ExecutorSet(address indexed executor);
     event BountyUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event BalanceUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event ProtocolDeregistered(uint256 indexed protocolId);
@@ -38,6 +41,7 @@ contract DeSecRegistry is ReentrancyGuard {
     event EmergencyActionUpdated(uint256 indexed protocolId, bytes previous, bytes next);
 
     error ZeroAddress();
+    error ExecutorAlreadySet();
     error ValueRequired();
     error InvalidRegistrationAmounts(
         uint256 valuePassed, uint256 bountyPassed, uint256 checkInFeePassed, uint256 minimumRegistrationFee
@@ -69,6 +73,17 @@ contract DeSecRegistry is ReentrancyGuard {
         factory = _factory;
 
         emit RegistryDeployed(address(this));
+    }
+
+    function setExecutor(GuardianExecutor _executor) external onlyFactory {
+        if (address(executor) != address(0)) {
+            revert ExecutorAlreadySet();
+        }
+        if (address(_executor) == address(0)) {
+            revert ZeroAddress();
+        }
+        executor = _executor;
+        emit ExecutorSet(address(_executor));
     }
 
     /**

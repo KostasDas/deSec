@@ -9,9 +9,9 @@ import {GuardianExecutor} from "../src/GuardianExecutor.sol";
 import {MockProtocol} from "./mocks/MockProtocol.sol";
 import {console} from "forge-std/console.sol";
 
-contract GuardianAdapterTest is Test {
+contract GuardianExecutorTest is Test {
     address protocolOwner = makeAddr("Protocol_Owner");
-    address random = makeAddr("Random_Account");
+    address watcher = makeAddr("Watcher");
     MockProtocol mockProtocol;
     GuardianAdapterFactory private factory;
     GuardianExecutor executor;
@@ -33,5 +33,8 @@ contract GuardianAdapterTest is Test {
         );
         adapter = GuardianAdapter(_adapter);
         protocolId = _protocolId;
+
+        vm.prank(protocolOwner);
+        mockProtocol.grantRole(mockProtocol.PAUSER_ROLE(), address(adapter));
     }
 }
