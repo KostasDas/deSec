@@ -632,10 +632,33 @@ contract DeSecRegistryTest is Test {
         registry.awardBounty(id, random);
     }
 
+    function testRegisterDefaultsOwnerToCallerWhenZeroOwnerPassed() public {
+        (address adapter, uint256 id) = factory.register{value: 2 ether}(
+            address(mockProtocol), invariantPayload, emergencyPayload, 1 ether, 0.001 ether, 5 minutes, address(0)
+        );
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(GuardianAdapter(adapter).owner(), address(this));
+        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        vm.assertEq(GuardianAdapter(address(p.adapter)).owner(), address(this));
+    }
+
+    function testDeRegisterRevertsWhenCalledByNonOwner() public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.deRegister(id);
+    }
+
+    function testRegistryConstructorRevertsWhenFactoryIsZero() public {
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new DeSecRegistry(GuardianAdapterFactory(address(0)));
+    }
+
     // ==============================================
     // Invariant gate tests
     // ==============================================
-
     function testMockProtocolBreakHealthFlipsInvariant() public {
         vm.assertTrue(mockProtocol.isHealthy());
         mockProtocol.breakHealth();
@@ -807,6 +830,38 @@ contract DeSecRegistryTest is Test {
         vm.assertEq(_p.bounty, bounty);
         vm.assertEq(_p.checkInFee, checkInFee);
         vm.assertEq(_p.balance, value);
+    }
+
+    function testFuzzRemainingCheckInsMatchesArithmetic(uint256 bounty, uint256 checkInFee, uint256 extra) public {
+        DeSecRegistry registry = factory.registry();
+        bounty = bound(bounty, registry.MINIMUM_REGISTRATION_FEE(), 100 ether);
+        checkInFee = bound(checkInFee, 0, 10 ether);
+        uint256 value = bounty + checkInFee + bound(extra, 0, 10 ether);
+        uint256 id = register(bounty, checkInFee, value);
+
+        if (checkInFee == 0 || value <= bounty) {
+            vm.assertEq(registry.remainingCheckIns(id), 0);
+        } else {
+            vm.assertEq(registry.remainingCheckIns(id), (value - bounty) / checkInFee);
+        }
+    }
+
+    function testFuzzUpdateIntervalRespectsMinimum(uint32 interval) public {
+        uint256 id = register(1 ether, 0.001 ether, 2 ether);
+        DeSecRegistry registry = factory.registry();
+        if (interval < registry.MINIMUM_INTERVAL()) {
+            bytes memory expectedError = abi.encodeWithSelector(
+                DeSecRegistry.InvalidIntervalDuration.selector, interval, registry.MINIMUM_INTERVAL()
+            );
+            vm.expectRevert(expectedError);
+            vm.prank(protocolOwner);
+            registry.updateInterval(id, interval);
+        } else {
+            vm.prank(protocolOwner);
+            registry.updateInterval(id, interval);
+            DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+            vm.assertEq(p.interval, interval);
+        }
     }
 }
 

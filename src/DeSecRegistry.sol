@@ -221,7 +221,6 @@ contract DeSecRegistry is ReentrancyGuard {
      */
 
     function deRegister(uint256 _protocolId) public onlyOwner(_protocolId) nonReentrant {
-
         Protocol storage p = protocols[_protocolId];
         uint256 balance = p.balance;
         delete protocols[_protocolId];
@@ -290,7 +289,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
-    function resolveIncident(uint256 _protocolId) onlyOwner(_protocolId) public {
+    function resolveIncident(uint256 _protocolId) public onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, p.invariantPayload);
         if (p.balance < p.bounty) {
@@ -298,7 +297,6 @@ contract DeSecRegistry is ReentrancyGuard {
         }
         p.incidentActive = false;
         emit IncidentResolved(_protocolId);
-
     }
 
     function invariantCheck(address _protocol, bytes memory _invariant) internal view {
@@ -335,7 +333,7 @@ contract DeSecRegistry is ReentrancyGuard {
         if (bounty == 0) {
             revert NoAvailableBounty();
         }
-        assert (address(this).balance >= bounty);
+        assert(address(this).balance >= bounty);
         delete claimableBounties[msg.sender][_protocolId];
         emit BountyClaimed(_protocolId, msg.sender, bounty);
         (bool success, bytes memory reason) = msg.sender.call{value: bounty}("");
@@ -343,4 +341,7 @@ contract DeSecRegistry is ReentrancyGuard {
             revert ActionFailed(reason);
         }
     }
+
+    fallback() external payable {}
+    receive() external payable {}
 }

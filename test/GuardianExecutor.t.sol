@@ -346,6 +346,42 @@ contract GuardianExecutorTest is Test {
     // Incident state
     // ==============================================
 
+    function testFullLifecycleFromBreachToClaim() public {
+        mockProtocol.breakHealth();
+        vm.expectEmit(true, true, false, false, address(executor));
+        emit GuardianExecutor.InvariantBreached(protocolId, address(mockProtocol));
+        vm.expectEmit(true, true, true, true, address(executor));
+        emit GuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        vm.prank(watcher);
+        bool result = executor.report(protocolId);
+        vm.assertTrue(result);
+        vm.assertTrue(mockProtocol.paused());
+
+        vm.deal(protocolOwner, 3 ether);
+        vm.prank(protocolOwner);
+        registry.topUp{value: 3 ether}(protocolId);
+        mockProtocol.heal();
+        vm.expectEmit(true, false, false, false, address(registry));
+        emit DeSecRegistry.IncidentResolved(protocolId);
+        vm.prank(protocolOwner);
+        registry.resolveIncident(protocolId);
+
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DeSecRegistry.BountyClaimed(protocolId, watcher, 4 ether);
+        vm.prank(watcher);
+        registry.claim(protocolId);
+        vm.assertEq(watcher.balance, 4 ether);
+        vm.assertEq(registry.totalAwarded(), 4 ether);
+
+        DeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
+        vm.assertEq(p.balance, 4 ether);
+        vm.assertFalse(p.incidentActive);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
+        vm.assertEq(address(registry).balance, 4 ether);
+    }
+
     function testReportRevertsWhileIncidentIsActive() public {
         enterIncident();
         bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.IncidentActive.selector, protocolId);
@@ -485,5 +521,32 @@ contract GuardianExecutorTest is Test {
         mockProtocol.breakHealth();
         vm.prank(watcher);
         executor.report(protocolId);
+    }
+
+    function testExecutorConstructorRevertsWhenRegistryIsZero() public {
+        bytes memory expectedError = abi.encodeWithSelector(GuardianExecutor.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new GuardianExecutor(DeSecRegistry(payable(address(0))));
+    }
+
+    // ==============================================
+    // Fuzz tests
+    // ==============================================
+
+    function testFuzzClaimTransfersExactBounty(uint256 bounty) public {
+        bounty = bound(bounty, registry.MINIMUM_REGISTRATION_FEE(), 100 ether);
+        vm.deal(protocolOwner, 2 * bounty);
+        vm.prank(protocolOwner);
+        (, uint256 id) = factory.register{value: 2 * bounty}(
+            address(mockProtocol), invariantPayload, bytes(""), bounty, 0, 5 minutes, protocolOwner
+        );
+        mockProtocol.breakHealth();
+        vm.prank(watcher);
+        executor.report(id);
+        vm.prank(watcher);
+        registry.claim(id);
+        vm.assertEq(watcher.balance, bounty);
+        vm.assertEq(registry.claimableBounties(watcher, id), 0);
+        vm.assertEq(registry.totalAwarded(), bounty);
     }
 }

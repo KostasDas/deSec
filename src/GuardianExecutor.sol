@@ -30,9 +30,7 @@ contract GuardianExecutor is ReentrancyGuard {
         if (p.incidentActive) {
             revert IncidentActive(_protocolId);
         }
-        if (p.balance < p.bounty) {
-            revert InsufficientProtocolBalance(_protocolId, p.balance, p.bounty);
-        }
+        assert(p.balance >= p.bounty);
         address protocol = p.protocol;
         bytes memory payload = p.invariantPayload;
         (bool success, bytes memory returnData) = protocol.staticcall(payload);

@@ -76,6 +76,14 @@ contract GuardianAdapterTest is Test {
     function testConstructorRevertsWhenRegistryIsZero() public {
         bytes memory expectedError = abi.encodeWithSelector(GuardianAdapter.ZeroAddress.selector);
         vm.expectRevert(expectedError);
-        new GuardianAdapter(protocolOwner, executor, DeSecRegistry(address(0)));
+        new GuardianAdapter(protocolOwner, executor, DeSecRegistry(payable(address(0))));
+    }
+
+    function testConstructorEmitsAdapterDeployed() public {
+        DeSecRegistry registry = factory.registry();
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        vm.expectEmit(false, false, false, true);
+        emit GuardianAdapter.AdapterDeployed(predicted);
+        new GuardianAdapter(protocolOwner, executor, registry);
     }
 }
