@@ -4,21 +4,11 @@ pragma solidity ^0.8.13;
 import {DeSecRegistry} from "./DeSecRegistry.sol";
 import {GuardianAdapter} from "./GuardianAdapter.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IGuardianExecutor} from "./interfaces/IGuardianExecutor.sol";
+import {IDeSecRegistry} from "./interfaces/IDeSecRegistry.sol";
 
-contract GuardianExecutor is ReentrancyGuard {
+contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
     DeSecRegistry public immutable registry;
-
-    error ZeroAddress();
-    error InvariantNotBreached();
-    error InvariantReverted();
-    error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
-    error IncidentActive(uint256 protocolId);
-    error IntervalNotPassed(uint256 nextInterval);
-    error NoCheckInFeeForProtocol(uint256 protocolId);
-
-    event InvariantBreached(uint256 indexed protocolId, address indexed protocol);
-    event EmergencyActionCalled(uint256 indexed protocolId, address indexed protocol, bool callResult);
-    event EmergencyActionFailed(uint256 indexed protocolId, address indexed protocol, bytes reason);
 
     constructor(DeSecRegistry _registry) {
         if (address(_registry) == address(0)) {
@@ -27,12 +17,12 @@ contract GuardianExecutor is ReentrancyGuard {
         registry = _registry;
     }
 
-    function report(uint256 _protocolId) public nonReentrant returns (bool) {
-        DeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
+    function report(uint256 _protocolId) public override nonReentrant returns (bool) {
+        IDeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
         return _report(p);
     }
 
-    function _report(DeSecRegistry.Protocol memory _p) internal returns (bool) {
+    function _report(IDeSecRegistry.Protocol memory _p) internal returns (bool) {
         if (_p.incidentActive) {
             revert IncidentActive(_p.protocolId);
         }
@@ -54,8 +44,8 @@ contract GuardianExecutor is ReentrancyGuard {
         return result;
     }
 
-    function checkIn(uint256 _protocolId) public nonReentrant {
-        DeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
+    function checkIn(uint256 _protocolId) public override nonReentrant {
+        IDeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
         if (p.incidentActive) {
             revert IncidentActive(_protocolId);
         }

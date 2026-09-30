@@ -5,61 +5,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {GuardianAdapter} from "./GuardianAdapter.sol";
 import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
 import {GuardianExecutor} from "./GuardianExecutor.sol";
+import {IDeSecRegistry} from "./interfaces/IDeSecRegistry.sol";
 
-contract DeSecRegistry is ReentrancyGuard {
-    uint32 public constant MINIMUM_INTERVAL = 1 minutes;
-    uint256 public constant MINIMUM_REGISTRATION_FEE = 0.01 ether;
+contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
+    uint32 public constant override MINIMUM_INTERVAL = 1 minutes;
+    uint256 public constant override MINIMUM_REGISTRATION_FEE = 0.01 ether;
     GuardianAdapterFactory public immutable factory;
     GuardianExecutor public executor;
 
     mapping(uint256 => Protocol) public protocols;
-    mapping(address => mapping(uint256 => uint256)) public claimableBounties;
-    uint256 public protocolId;
-    uint256 public totalAwarded;
-
-    struct Protocol {
-        uint256 protocolId;
-        uint256 balance;
-        uint256 bounty;
-        uint256 checkInFee;
-        uint256 lastCheckIn;
-        uint256 registrationTime;
-        bytes invariantPayload;
-        bytes emergencyPayload;
-        address protocol;
-        GuardianAdapter adapter;
-        uint32 interval;
-        bool incidentActive;
-    }
-
-    event Registered(address indexed adapter, address indexed protocol, uint256 indexed protocolId);
-    event RegistryDeployed(address indexed registry);
-    event ExecutorSet(address indexed executor);
-    event BountyUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
-    event BalanceUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
-    event ProtocolDeregistered(uint256 indexed protocolId);
-    event CheckInFeeUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
-    event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
-    event InvariantUpdated(uint256 indexed protocolId, bytes previous, bytes next);
-    event EmergencyActionUpdated(uint256 indexed protocolId, bytes previous, bytes next);
-    event BountyAwarded(uint256 indexed protocolId, address indexed user, uint256 amount);
-    event BountyClaimed(uint256 indexed protocolId, address indexed user, uint256 amount);
-    event IncidentResolved(uint256 indexed protocolId);
-
-    error ZeroAddress();
-    error ExecutorAlreadySet();
-    error ValueRequired();
-    error InvalidRegistrationAmounts(
-        uint256 valuePassed, uint256 bountyPassed, uint256 checkInFeePassed, uint256 minimumRegistrationFee
-    );
-    error ProtocolNotFound(uint256 id);
-    error InvalidIntervalDuration(uint256 passed, uint256 minimum);
-    error ActionFailed(bytes data);
-    error InSufficientWithdrawableBalance(uint256 passed, uint256 available);
-    error NoCodeAtTarget(address target);
-    error InvariantCurrentlyBroken();
-    error NoAvailableBounty();
-    error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
+    mapping(address => mapping(uint256 => uint256)) public override claimableBounties;
+    uint256 public override protocolId;
+    uint256 public override totalAwarded;
 
     modifier onlyFactory() {
         require(msg.sender == address(factory));
@@ -88,7 +45,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit RegistryDeployed(address(this));
     }
 
-    function setExecutor(GuardianExecutor _executor) external onlyFactory {
+    function setExecutor(GuardianExecutor _executor) external override onlyFactory {
         if (address(executor) != address(0)) {
             revert ExecutorAlreadySet();
         }
@@ -121,7 +78,7 @@ contract DeSecRegistry is ReentrancyGuard {
         uint256 _bounty,
         uint256 _checkInFee,
         uint32 _interval
-    ) public payable onlyFactory returns (uint256) {
+    ) public payable override onlyFactory returns (uint256) {
         if (
             msg.value < MINIMUM_REGISTRATION_FEE || _bounty < MINIMUM_REGISTRATION_FEE
                 || msg.value < (_bounty + _checkInFee)
@@ -162,7 +119,7 @@ contract DeSecRegistry is ReentrancyGuard {
         return p.protocolId;
     }
 
-    function getProtocol(uint256 _id) public view returns (Protocol memory) {
+    function getProtocol(uint256 _id) public view override returns (Protocol memory) {
         Protocol memory p = protocols[_id];
         if (p.protocolId == 0) {
             revert ProtocolNotFound(_id);
@@ -170,7 +127,7 @@ contract DeSecRegistry is ReentrancyGuard {
         return p;
     }
 
-    function addBounty(uint256 _protocolId) public payable onlyOwner(_protocolId) {
+    function addBounty(uint256 _protocolId) public payable override onlyOwner(_protocolId) {
         if (msg.value == 0) {
             revert ValueRequired();
         }
@@ -185,7 +142,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit BalanceUpdated(_protocolId, previousBalance, p.balance);
     }
 
-    function topUp(uint256 _protocolId) external payable onlyOwner(_protocolId) {
+    function topUp(uint256 _protocolId) external payable override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         if (msg.value == 0) {
             revert ValueRequired();
@@ -196,7 +153,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit BalanceUpdated(_protocolId, previous, p.balance);
     }
 
-    function remainingCheckIns(uint256 _protocolId) external view returns (uint256) {
+    function remainingCheckIns(uint256 _protocolId) external view override returns (uint256) {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
             revert ProtocolNotFound(_protocolId);
@@ -208,7 +165,7 @@ contract DeSecRegistry is ReentrancyGuard {
         return checkInBalance / p.checkInFee;
     }
 
-    function lastCheckIn(uint256 _protocolId) external view returns (uint256) {
+    function lastCheckIn(uint256 _protocolId) external view override returns (uint256) {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
             revert ProtocolNotFound(_protocolId);
@@ -220,7 +177,7 @@ contract DeSecRegistry is ReentrancyGuard {
      * Protocol Owner actions
      */
 
-    function deRegister(uint256 _protocolId) public onlyOwner(_protocolId) nonReentrant {
+    function deRegister(uint256 _protocolId) public override onlyOwner(_protocolId) nonReentrant {
         Protocol storage p = protocols[_protocolId];
         uint256 balance = p.balance;
         delete protocols[_protocolId];
@@ -232,14 +189,14 @@ contract DeSecRegistry is ReentrancyGuard {
         revert ActionFailed(data);
     }
 
-    function updateCheckInFee(uint256 _protocolId, uint256 _fee) public onlyOwner(_protocolId) {
+    function updateCheckInFee(uint256 _protocolId, uint256 _fee) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         uint256 previous = p.checkInFee;
         p.checkInFee = _fee; // we allow _fee to be 0
         emit CheckInFeeUpdated(_protocolId, previous, _fee);
     }
 
-    function updateInterval(uint256 _protocolId, uint32 _interval) public onlyOwner(_protocolId) {
+    function updateInterval(uint256 _protocolId, uint32 _interval) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         if (_interval < MINIMUM_INTERVAL) {
             revert InvalidIntervalDuration(_interval, MINIMUM_INTERVAL);
@@ -249,7 +206,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit IntervalUpdated(_protocolId, previous, _interval);
     }
 
-    function withdraw(uint256 _protocolId, uint256 _amount) public onlyOwner(_protocolId) nonReentrant {
+    function withdraw(uint256 _protocolId, uint256 _amount) public override onlyOwner(_protocolId) nonReentrant {
         Protocol storage p = protocols[_protocolId];
         uint256 previousBalance = p.balance;
         if (p.balance < p.bounty) {
@@ -272,7 +229,7 @@ contract DeSecRegistry is ReentrancyGuard {
         revert ActionFailed(data);
     }
 
-    function updateInvariant(uint256 _protocolId, bytes calldata _newInvariant) public onlyOwner(_protocolId) {
+    function updateInvariant(uint256 _protocolId, bytes calldata _newInvariant) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, _newInvariant);
         bytes memory previous = p.invariantPayload;
@@ -281,7 +238,11 @@ contract DeSecRegistry is ReentrancyGuard {
         emit InvariantUpdated(_protocolId, previous, _newInvariant);
     }
 
-    function updateEmergencyAction(uint256 _protocolId, bytes calldata _newEmergency) public onlyOwner(_protocolId) {
+    function updateEmergencyAction(uint256 _protocolId, bytes calldata _newEmergency)
+        public
+        override
+        onlyOwner(_protocolId)
+    {
         Protocol storage p = protocols[_protocolId];
         bytes memory previous = p.emergencyPayload;
         p.emergencyPayload = _newEmergency;
@@ -289,7 +250,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
-    function resolveIncident(uint256 _protocolId) public onlyOwner(_protocolId) {
+    function resolveIncident(uint256 _protocolId) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, p.invariantPayload);
         if (p.balance < p.bounty) {
@@ -313,7 +274,7 @@ contract DeSecRegistry is ReentrancyGuard {
         }
     }
 
-    function awardBounty(uint256 _protocolId, address _watcher) public onlyExecutor {
+    function awardBounty(uint256 _protocolId, address _watcher) public override onlyExecutor {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
             revert ProtocolNotFound(_protocolId);
@@ -328,7 +289,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit BountyAwarded(_protocolId, _watcher, p.bounty);
     }
 
-    function drip(uint256 _protocolId, address _watcher) public onlyExecutor {
+    function drip(uint256 _protocolId, address _watcher) public override onlyExecutor {
         Protocol storage p = protocols[_protocolId];
         p.balance -= p.checkInFee;
         assert(p.balance >= p.bounty);
@@ -338,7 +299,7 @@ contract DeSecRegistry is ReentrancyGuard {
         emit BountyAwarded(_protocolId, _watcher, p.checkInFee);
     }
 
-    function claim(uint256 _protocolId) public nonReentrant {
+    function claim(uint256 _protocolId) public override nonReentrant {
         uint256 bounty = claimableBounties[msg.sender][_protocolId];
         if (bounty == 0) {
             revert NoAvailableBounty();

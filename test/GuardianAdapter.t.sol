@@ -6,6 +6,7 @@ import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol"
 import {DeSecRegistry} from "../src/DeSecRegistry.sol";
 import {GuardianAdapterFactory} from "../src/GuardianAdapterFactory.sol";
 import {GuardianAdapter} from "../src/GuardianAdapter.sol";
+import {IGuardianAdapter} from "../src/interfaces/IGuardianAdapter.sol";
 import {GuardianExecutor} from "../src/GuardianExecutor.sol";
 import {MockProtocol} from "./mocks/MockProtocol.sol";
 import {console} from "forge-std/console.sol";
@@ -68,13 +69,13 @@ contract GuardianAdapterTest is Test {
 
     function testConstructorRevertsWhenExecutorIsZero() public {
         DeSecRegistry registry = factory.registry();
-        bytes memory expectedError = abi.encodeWithSelector(GuardianAdapter.ZeroAddress.selector);
+        bytes memory expectedError = abi.encodeWithSelector(IGuardianAdapter.ZeroAddress.selector);
         vm.expectRevert(expectedError);
         new GuardianAdapter(protocolOwner, GuardianExecutor(address(0)), registry);
     }
 
     function testConstructorRevertsWhenRegistryIsZero() public {
-        bytes memory expectedError = abi.encodeWithSelector(GuardianAdapter.ZeroAddress.selector);
+        bytes memory expectedError = abi.encodeWithSelector(IGuardianAdapter.ZeroAddress.selector);
         vm.expectRevert(expectedError);
         new GuardianAdapter(protocolOwner, executor, DeSecRegistry(payable(address(0))));
     }
@@ -83,7 +84,7 @@ contract GuardianAdapterTest is Test {
         DeSecRegistry registry = factory.registry();
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectEmit(false, false, false, true);
-        emit GuardianAdapter.AdapterDeployed(predicted);
+        emit IGuardianAdapter.AdapterDeployed(predicted);
         new GuardianAdapter(protocolOwner, executor, registry);
     }
 }

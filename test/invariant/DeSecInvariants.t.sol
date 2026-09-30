@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {DeSecRegistry} from "../../src/DeSecRegistry.sol";
+import {IDeSecRegistry} from "../../src/interfaces/IDeSecRegistry.sol";
 import {GuardianAdapterFactory} from "../../src/GuardianAdapterFactory.sol";
 import {GuardianAdapter} from "../../src/GuardianAdapter.sol";
 import {GuardianExecutor} from "../../src/GuardianExecutor.sol";
@@ -78,7 +79,7 @@ contract DeSecHandler is Test {
     function withdraw(uint256 idSeed, uint256 amountSeed) external {
         uint256 id = _pickLive(idSeed);
         if (id == 0) return;
-        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        IDeSecRegistry.Protocol memory p = registry.getProtocol(id);
         uint256 amount = bound(amountSeed, 0, p.balance);
         try registry.withdraw(id, amount) {} catch {}
         _syncBounty(id);
@@ -107,7 +108,7 @@ contract DeSecHandler is Test {
     function report(uint256 idSeed, uint256 watcherSeed) external {
         uint256 id = _pickLive(idSeed);
         if (id == 0) return;
-        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        IDeSecRegistry.Protocol memory p = registry.getProtocol(id);
         address watcher = _pickWatcher(watcherSeed);
         vm.prank(watcher);
         if (p.incidentActive) {
@@ -133,7 +134,7 @@ contract DeSecHandler is Test {
     function checkIn(uint256 idSeed, uint256 watcherSeed, uint256 warpSeed) external {
         uint256 id = _pickLive(idSeed);
         if (id == 0) return;
-        DeSecRegistry.Protocol memory pre = registry.getProtocol(id);
+        IDeSecRegistry.Protocol memory pre = registry.getProtocol(id);
         vm.warp(block.timestamp + bound(warpSeed, 0, 10 minutes));
         address watcher = _pickWatcher(watcherSeed);
         vm.prank(watcher);
@@ -142,7 +143,7 @@ contract DeSecHandler is Test {
                 checkInDuringIncidentSucceeded = true;
                 return;
             }
-            DeSecRegistry.Protocol memory post = registry.getProtocol(id);
+            IDeSecRegistry.Protocol memory post = registry.getProtocol(id);
             if (post.incidentActive) {
                 ghostAwarded += pre.bounty;
                 ghostClaimableOutstanding += pre.bounty;
@@ -190,7 +191,7 @@ contract DeSecHandler is Test {
 
     function _syncBounty(uint256 id) internal {
         if (id == 0) return;
-        DeSecRegistry.Protocol memory p = registry.getProtocol(id);
+        IDeSecRegistry.Protocol memory p = registry.getProtocol(id);
         uint256 last = ghostLastBounty[id];
         if (last != 0 && p.bounty < last) {
             bountyDecreased = true;
@@ -245,7 +246,7 @@ contract DeSecInvariantsTest is Test {
     function invariant_noUnderwaterRecordOutsideIncident() public view {
         uint256[] memory ids = handler.liveIdList();
         for (uint256 i = 0; i < ids.length; i++) {
-            DeSecRegistry.Protocol memory p = registry.getProtocol(ids[i]);
+            IDeSecRegistry.Protocol memory p = registry.getProtocol(ids[i]);
             if (!p.incidentActive) {
                 assertGe(p.balance, p.bounty);
             }
