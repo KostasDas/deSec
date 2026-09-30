@@ -11,6 +11,8 @@ contract GuardianExecutor is ReentrancyGuard {
     error ZeroAddress();
     error InvariantNotBreached();
     error InvariantReverted();
+    error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
+    error IncidentActive(uint256 protocolId);
 
     event InvariantBreached(uint256 indexed protocolId, address indexed protocol);
     event EmergencyActionCalled(uint256 indexed protocolId, address indexed protocol, bool callResult);
@@ -25,6 +27,12 @@ contract GuardianExecutor is ReentrancyGuard {
 
     function report(uint256 _protocolId) public nonReentrant returns (bool) {
         DeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
+        if (p.incidentActive) {
+            revert IncidentActive(_protocolId);
+        }
+        if (p.balance < p.bounty) {
+            revert InsufficientProtocolBalance(_protocolId, p.balance, p.bounty);
+        }
         address protocol = p.protocol;
         bytes memory payload = p.invariantPayload;
         (bool success, bytes memory returnData) = protocol.staticcall(payload);
@@ -41,6 +49,7 @@ contract GuardianExecutor is ReentrancyGuard {
             result = triggerEmergencyAction(_protocolId, p.adapter, protocol, p.emergencyPayload);
             emit EmergencyActionCalled(_protocolId, protocol, result);
         }
+        registry.awardBounty(_protocolId, msg.sender);
         return result;
     }
 

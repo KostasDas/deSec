@@ -13,7 +13,9 @@ contract DeSecRegistry is ReentrancyGuard {
     GuardianExecutor public executor;
 
     mapping(uint256 => Protocol) public protocols;
+    mapping(address => mapping(uint256 => uint256)) public claimableBounties;
     uint256 public protocolId;
+    uint256 public totalAwarded;
 
     struct Protocol {
         uint256 protocolId;
@@ -27,6 +29,7 @@ contract DeSecRegistry is ReentrancyGuard {
         address protocol;
         GuardianAdapter adapter;
         uint32 interval;
+        bool incidentActive;
     }
 
     event Registered(address indexed adapter, address indexed protocol, uint256 indexed protocolId);
@@ -39,6 +42,9 @@ contract DeSecRegistry is ReentrancyGuard {
     event IntervalUpdated(uint256 indexed protocolId, uint256 previous, uint256 next);
     event InvariantUpdated(uint256 indexed protocolId, bytes previous, bytes next);
     event EmergencyActionUpdated(uint256 indexed protocolId, bytes previous, bytes next);
+    event BountyAwarded(uint256 indexed protocolId, address indexed user, uint256 amount);
+    event BountyClaimed(uint256 indexed protocolId, address indexed user, uint256 amount);
+    event IncidentResolved(uint256 indexed protocolId);
 
     error ZeroAddress();
     error ExecutorAlreadySet();
@@ -52,9 +58,16 @@ contract DeSecRegistry is ReentrancyGuard {
     error InSufficientWithdrawableBalance(uint256 passed, uint256 available);
     error NoCodeAtTarget(address target);
     error InvariantCurrentlyBroken();
+    error NoAvailableBounty();
+    error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
 
     modifier onlyFactory() {
         require(msg.sender == address(factory));
+        _;
+    }
+
+    modifier onlyExecutor() {
+        require(msg.sender == address(executor));
         _;
     }
 
@@ -140,7 +153,8 @@ contract DeSecRegistry is ReentrancyGuard {
             protocol: _protocol,
             adapter: _adapter,
             invariantPayload: _invariantPayload,
-            emergencyPayload: _emergencyActionPayload
+            emergencyPayload: _emergencyActionPayload,
+            incidentActive: false
         });
         protocols[p.protocolId] = p;
 
@@ -207,8 +221,7 @@ contract DeSecRegistry is ReentrancyGuard {
      */
 
     function deRegister(uint256 _protocolId) public onlyOwner(_protocolId) nonReentrant {
-        //todo perfom checks that we don't currently have about the protocol's state. if it's pending
-        // a bounty payout it should not be allowed to deregister
+
         Protocol storage p = protocols[_protocolId];
         uint256 balance = p.balance;
         delete protocols[_protocolId];
@@ -240,6 +253,9 @@ contract DeSecRegistry is ReentrancyGuard {
     function withdraw(uint256 _protocolId, uint256 _amount) public onlyOwner(_protocolId) nonReentrant {
         Protocol storage p = protocols[_protocolId];
         uint256 previousBalance = p.balance;
+        if (p.balance < p.bounty) {
+            revert InSufficientWithdrawableBalance(_amount, 0);
+        }
         uint256 availableBalance = p.balance - p.bounty;
         if (_amount == 0) {
             revert ValueRequired();
@@ -274,7 +290,18 @@ contract DeSecRegistry is ReentrancyGuard {
         emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
-    function invariantCheck(address _protocol, bytes calldata _invariant) internal view {
+    function resolveIncident(uint256 _protocolId) onlyOwner(_protocolId) public {
+        Protocol storage p = protocols[_protocolId];
+        invariantCheck(p.protocol, p.invariantPayload);
+        if (p.balance < p.bounty) {
+            revert InsufficientProtocolBalance(_protocolId, p.balance, p.bounty);
+        }
+        p.incidentActive = false;
+        emit IncidentResolved(_protocolId);
+
+    }
+
+    function invariantCheck(address _protocol, bytes memory _invariant) internal view {
         if (_protocol.code.length == 0) {
             revert NoCodeAtTarget(_protocol);
         }
@@ -285,6 +312,35 @@ contract DeSecRegistry is ReentrancyGuard {
         bool healthy = abi.decode(result, (bool));
         if (!healthy) {
             revert InvariantCurrentlyBroken();
+        }
+    }
+
+    function awardBounty(uint256 _protocolId, address _watcher) public onlyExecutor {
+        Protocol storage p = protocols[_protocolId];
+        if (p.protocolId == 0) {
+            revert ProtocolNotFound(_protocolId);
+        }
+        if (p.balance < p.bounty) {
+            revert InsufficientProtocolBalance(_protocolId, p.balance, p.bounty);
+        }
+        p.balance -= p.bounty;
+        claimableBounties[_watcher][_protocolId] += p.bounty;
+        totalAwarded += p.bounty;
+        p.incidentActive = true;
+        emit BountyAwarded(_protocolId, _watcher, p.bounty);
+    }
+
+    function claim(uint256 _protocolId) public nonReentrant {
+        uint256 bounty = claimableBounties[msg.sender][_protocolId];
+        if (bounty == 0) {
+            revert NoAvailableBounty();
+        }
+        assert (address(this).balance >= bounty);
+        delete claimableBounties[msg.sender][_protocolId];
+        emit BountyClaimed(_protocolId, msg.sender, bounty);
+        (bool success, bytes memory reason) = msg.sender.call{value: bounty}("");
+        if (!success) {
+            revert ActionFailed(reason);
         }
     }
 }

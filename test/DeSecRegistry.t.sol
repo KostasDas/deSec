@@ -597,6 +597,42 @@ contract DeSecRegistryTest is Test {
     }
 
     // ==============================================
+    // Bounty award guard tests
+    // ==============================================
+
+    function testAwardBountyRevertsWhenCallerIsNotExecutor() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.awardBounty(id, random);
+    }
+
+    function testAwardBountyRevertsWhenProtocolDoesNotExist() public {
+        uint256 nonExistentId = 999;
+        DeSecRegistry registry = factory.registry();
+        address executor = address(factory.executor());
+        bytes memory expectedError = abi.encodeWithSelector(DeSecRegistry.ProtocolNotFound.selector, nonExistentId);
+        vm.expectRevert(expectedError);
+        vm.prank(executor);
+        registry.awardBounty(nonExistentId, random);
+    }
+
+    function testAwardBountyRevertsWhenRecordIsUnderwater() public {
+        uint256 id = register(4 ether, 1e6 wei, 5 ether);
+        DeSecRegistry registry = factory.registry();
+        address executor = address(factory.executor());
+        mockProtocol.breakHealth();
+        vm.prank(executor);
+        registry.awardBounty(id, random);
+        bytes memory expectedError =
+            abi.encodeWithSelector(DeSecRegistry.InsufficientProtocolBalance.selector, id, 1 ether, 4 ether);
+        vm.expectRevert(expectedError);
+        vm.prank(executor);
+        registry.awardBounty(id, random);
+    }
+
+    // ==============================================
     // Invariant gate tests
     // ==============================================
 

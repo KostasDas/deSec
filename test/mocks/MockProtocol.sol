@@ -27,6 +27,14 @@ contract MockProtocol is AccessControl {
         healthy = false;
     }
 
+    function heal() external {
+        healthy = true;
+    }
+
+    function alwaysHealthy() external pure returns (bool) {
+        return true;
+    }
+
     function pause() external onlyRole(PAUSER_ROLE) {
         paused = true;
     }
