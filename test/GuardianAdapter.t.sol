@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {DeSecRegistry} from "../src/DeSecRegistry.sol";
 import {GuardianAdapterFactory} from "../src/GuardianAdapterFactory.sol";
 import {GuardianAdapter} from "../src/GuardianAdapter.sol";
@@ -33,5 +34,48 @@ contract GuardianAdapterTest is Test {
         );
         adapter = GuardianAdapter(_adapter);
         protocolId = _protocolId;
+    }
+
+    function testCallEmergencyFunctionRevertsWhenCallerIsNotExecutor() public {
+        vm.expectRevert();
+        vm.prank(random);
+        adapter.callEmergencyFunction(address(mockProtocol), emergencyPayload);
+    }
+
+    function testCallEmergencyFunctionExecutesOnTarget() public {
+        bytes32 pauserRole = mockProtocol.PAUSER_ROLE();
+        vm.prank(protocolOwner);
+        mockProtocol.grantRole(pauserRole, address(adapter));
+        vm.prank(address(executor));
+        adapter.callEmergencyFunction(address(mockProtocol), emergencyPayload);
+        vm.assertTrue(mockProtocol.paused());
+    }
+
+    function testCallEmergencyFunctionBubblesRevertReason() public {
+        bytes memory expectedReason = abi.encodeWithSelector(
+            IAccessControl.AccessControlUnauthorizedAccount.selector, address(adapter), mockProtocol.PAUSER_ROLE()
+        );
+        vm.expectRevert(expectedReason);
+        vm.prank(address(executor));
+        adapter.callEmergencyFunction(address(mockProtocol), emergencyPayload);
+    }
+
+    function testConstructorWiresOwnerExecutorAndRegistry() public {
+        vm.assertEq(adapter.owner(), protocolOwner);
+        vm.assertEq(address(adapter.executor()), address(executor));
+        vm.assertEq(address(adapter.registry()), address(factory.registry()));
+    }
+
+    function testConstructorRevertsWhenExecutorIsZero() public {
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(GuardianAdapter.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new GuardianAdapter(protocolOwner, GuardianExecutor(address(0)), registry);
+    }
+
+    function testConstructorRevertsWhenRegistryIsZero() public {
+        bytes memory expectedError = abi.encodeWithSelector(GuardianAdapter.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new GuardianAdapter(protocolOwner, executor, DeSecRegistry(address(0)));
     }
 }

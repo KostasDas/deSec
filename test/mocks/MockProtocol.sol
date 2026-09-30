@@ -9,6 +9,8 @@ contract MockProtocol is AccessControl {
     bool public healthy = true;
     bool public paused;
 
+    error PauseFailed();
+
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
@@ -27,5 +29,13 @@ contract MockProtocol is AccessControl {
 
     function pause() external onlyRole(PAUSER_ROLE) {
         paused = true;
+    }
+
+    function pauseWithCustomError() external {
+        revert PauseFailed();
+    }
+
+    function pauseSilently() external {
+        revert();
     }
 }

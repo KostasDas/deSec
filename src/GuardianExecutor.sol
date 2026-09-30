@@ -14,7 +14,7 @@ contract GuardianExecutor is ReentrancyGuard {
 
     event InvariantBreached(uint256 indexed protocolId, address indexed protocol);
     event EmergencyActionCalled(uint256 indexed protocolId, address indexed protocol, bool callResult);
-    event EmergencyActionReverted(uint256 indexed protocolId, address indexed protocol, bytes reason);
+    event EmergencyActionFailed(uint256 indexed protocolId, address indexed protocol, bytes reason);
 
     constructor(DeSecRegistry _registry) {
         if (address(_registry) == address(0)) {
@@ -53,7 +53,7 @@ contract GuardianExecutor is ReentrancyGuard {
         try _adapter.callEmergencyFunction(_protocol, _payload) {
             return true;
         } catch (bytes memory reason) {
-            emit EmergencyActionReverted(_protocolId, _protocol, reason);
+            emit EmergencyActionFailed(_protocolId, _protocol, reason);
             return false;
         }
     }
