@@ -1,6 +1,5 @@
 # deSec (Decentralized Security): A Decentralized Protocol Monitoring and Emergency Response Network
 
-**Metana Solidity Bootcamp — Capstone Project Proposal**
 
 ---
 
