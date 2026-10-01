@@ -33,6 +33,9 @@ interface IDeSecRegistry {
     event BountyAwarded(uint256 indexed protocolId, address indexed user, uint256 amount);
     event BountyClaimed(uint256 indexed protocolId, address indexed user, uint256 amount);
     event IncidentResolved(uint256 indexed protocolId);
+    event FeeRecipientTransferStarted(address indexed current, address indexed pending);
+    event FeeRecipientTransferred(address indexed previous, address indexed current);
+    event NetworkFeesWithdrawn(address indexed recipient, uint256 amount);
 
     error ZeroAddress();
     error ExecutorAlreadySet();
@@ -48,12 +51,22 @@ interface IDeSecRegistry {
     error InvariantCurrentlyBroken();
     error NoAvailableBounty();
     error InsufficientProtocolBalance(uint256 protocolId, uint256 balance, uint256 bounty);
+    error NoNetworkFees();
 
     function MINIMUM_INTERVAL() external view returns (uint32);
     function MINIMUM_REGISTRATION_FEE() external view returns (uint256);
+    function NETWORK_FEE_BPS() external view returns (uint256);
+    function BPS_DENOMINATOR() external view returns (uint256);
     function protocolId() external view returns (uint256);
     function totalAwarded() external view returns (uint256);
+    function networkFees() external view returns (uint256);
+    function feeRecipient() external view returns (address);
+    function pendingFeeRecipient() external view returns (address);
     function claimableBounties(address watcher, uint256 protocolId_) external view returns (uint256);
+
+    function transferFeeRecipient(address _newRecipient) external;
+    function acceptFeeRecipient() external;
+    function withdrawNetworkFees() external;
 
     function setExecutor(GuardianExecutor _executor) external;
     function register(

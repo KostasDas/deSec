@@ -10,7 +10,7 @@ contract GuardianAdapterFactory {
     GuardianExecutor public immutable executor;
 
     constructor() {
-        registry = new DeSecRegistry(this);
+        registry = new DeSecRegistry(this, msg.sender);
         executor = new GuardianExecutor(registry);
         registry.setExecutor(executor);
     }

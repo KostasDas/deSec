@@ -10,6 +10,8 @@ import {IDeSecRegistry} from "./interfaces/IDeSecRegistry.sol";
 contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
     uint32 public constant override MINIMUM_INTERVAL = 1 minutes;
     uint256 public constant override MINIMUM_REGISTRATION_FEE = 0.01 ether;
+    uint256 public constant override NETWORK_FEE_BPS = 100;
+    uint256 public constant override BPS_DENOMINATOR = 10_000;
     GuardianAdapterFactory public immutable factory;
     GuardianExecutor public executor;
 
@@ -17,6 +19,9 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
     mapping(address => mapping(uint256 => uint256)) public override claimableBounties;
     uint256 public override protocolId;
     uint256 public override totalAwarded;
+    uint256 public override networkFees;
+    address public override feeRecipient;
+    address public override pendingFeeRecipient;
 
     modifier onlyFactory() {
         require(msg.sender == address(factory));
@@ -28,6 +33,11 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         _;
     }
 
+    modifier onlyFeeRecipient() {
+        require(msg.sender == feeRecipient);
+        _;
+    }
+
     modifier onlyOwner(uint256 _protocolId) {
         GuardianAdapter adapter = protocols[_protocolId].adapter;
         require(address(adapter) != address(0));
@@ -36,11 +46,12 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         _;
     }
 
-    constructor(GuardianAdapterFactory _factory) {
-        if (address(_factory) == address(0)) {
+    constructor(GuardianAdapterFactory _factory, address _feeRecipient) {
+        if (address(_factory) == address(0) || _feeRecipient == address(0)) {
             revert ZeroAddress();
         }
         factory = _factory;
+        feeRecipient = _feeRecipient;
 
         emit RegistryDeployed(address(this));
     }
@@ -94,8 +105,6 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         if (_interval < MINIMUM_INTERVAL) {
             revert InvalidIntervalDuration(_interval, MINIMUM_INTERVAL);
         }
-        // so, invariant and emergency selectors can be malicious. how do we protect? what assumptions are safe to make?
-        // i will delegate this to later.
         invariantCheck(_protocol, _invariantPayload);
 
         protocolId += 1;
@@ -283,10 +292,13 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
             revert InsufficientProtocolBalance(_protocolId, p.balance, p.bounty);
         }
         p.balance -= p.bounty;
-        claimableBounties[_watcher][_protocolId] += p.bounty;
-        totalAwarded += p.bounty;
+        uint256 fee = (p.bounty * NETWORK_FEE_BPS) / BPS_DENOMINATOR;
+        uint256 net = p.bounty - fee;
+        networkFees += fee;
+        claimableBounties[_watcher][_protocolId] += net;
+        totalAwarded += net;
         p.incidentActive = true;
-        emit BountyAwarded(_protocolId, _watcher, p.bounty);
+        emit BountyAwarded(_protocolId, _watcher, net);
     }
 
     function drip(uint256 _protocolId, address _watcher) public override onlyExecutor {
@@ -313,6 +325,40 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         }
     }
 
-    fallback() external payable {}
-    receive() external payable {}
+    fallback() external payable {
+        networkFees += msg.value;
+    }
+
+    receive() external payable {
+        networkFees += msg.value;
+    }
+
+    function transferFeeRecipient(address _newRecipient) external override onlyFeeRecipient {
+        if (_newRecipient == address(0)) {
+            revert ZeroAddress();
+        }
+        pendingFeeRecipient = _newRecipient;
+        emit FeeRecipientTransferStarted(feeRecipient, _newRecipient);
+    }
+
+    function acceptFeeRecipient() external override {
+        require(msg.sender == pendingFeeRecipient);
+        address previous = feeRecipient;
+        feeRecipient = pendingFeeRecipient;
+        delete pendingFeeRecipient;
+        emit FeeRecipientTransferred(previous, feeRecipient);
+    }
+
+    function withdrawNetworkFees() external override onlyFeeRecipient nonReentrant {
+        uint256 amount = networkFees;
+        if (amount == 0) {
+            revert NoNetworkFees();
+        }
+        networkFees = 0;
+        emit NetworkFeesWithdrawn(feeRecipient, amount);
+        (bool success, bytes memory reason) = msg.sender.call{value: amount}("");
+        if (!success) {
+            revert ActionFailed(reason);
+        }
+    }
 }

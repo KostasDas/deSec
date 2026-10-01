@@ -196,11 +196,11 @@ contract GuardianExecutorTest is Test {
     function testReportAwardsBountyToReporter() public {
         mockProtocol.breakHealth();
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         bool result = executor.report(protocolId);
         vm.assertTrue(result);
-        vm.assertEq(registry.totalAwarded(), 4 ether);
+        vm.assertEq(registry.totalAwarded(), 3.96 ether);
     }
 
     function testReportAwardsBountyWhenEmergencyActionFails() public {
@@ -209,7 +209,7 @@ contract GuardianExecutorTest is Test {
         mockProtocol.revokeRole(pauserRole, address(adapter));
         mockProtocol.breakHealth();
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         bool result = executor.report(protocolId);
         vm.assertFalse(result);
@@ -219,7 +219,7 @@ contract GuardianExecutorTest is Test {
         uint256 id = registerWithEmergencyPayload(bytes(""));
         mockProtocol.breakHealth();
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(id, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(id, watcher, 3.96 ether);
         vm.prank(watcher);
         executor.report(id);
     }
@@ -239,14 +239,14 @@ contract GuardianExecutorTest is Test {
         mockProtocol.breakHealth();
         vm.prank(watcher);
         executor.report(protocolId);
-        vm.assertEq(registry.claimableBounties(watcher, protocolId), 4 ether);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 3.96 ether);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         registry.claim(protocolId);
-        vm.assertEq(watcher.balance, 4 ether);
+        vm.assertEq(watcher.balance, 3.96 ether);
         vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
-        vm.assertEq(address(registry).balance, 1 ether);
+        vm.assertEq(address(registry).balance, 1.04 ether);
     }
 
     function testClaimRevertsWhenClaimingTwice() public {
@@ -304,7 +304,7 @@ contract GuardianExecutorTest is Test {
         vm.expectRevert(expectedError);
         vm.prank(address(mockProtocol));
         registry.claim(protocolId);
-        vm.assertEq(registry.claimableBounties(address(mockProtocol), protocolId), 4 ether);
+        vm.assertEq(registry.claimableBounties(address(mockProtocol), protocolId), 3.96 ether);
     }
 
     function testClaimIsolatesBountiesBetweenWatchersAndProtocols() public {
@@ -319,8 +319,8 @@ contract GuardianExecutorTest is Test {
         registry.claim(protocolId);
         vm.prank(secondWatcher);
         registry.claim(secondId);
-        vm.assertEq(watcher.balance, 4 ether);
-        vm.assertEq(secondWatcher.balance, 4 ether);
+        vm.assertEq(watcher.balance, 3.96 ether);
+        vm.assertEq(secondWatcher.balance, 3.96 ether);
         vm.assertEq(registry.claimableBounties(watcher, secondId), 0);
         vm.assertEq(registry.claimableBounties(secondWatcher, protocolId), 0);
     }
@@ -341,7 +341,7 @@ contract GuardianExecutorTest is Test {
         freshExecutor.report(id);
         vm.prank(watcher);
         freshRegistry.claim(id);
-        vm.assertEq(watcher.balance, 1 ether);
+        vm.assertEq(watcher.balance, 0.99 ether);
     }
 
     // ==============================================
@@ -355,7 +355,7 @@ contract GuardianExecutorTest is Test {
         vm.expectEmit(true, true, true, true, address(executor));
         emit IGuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         bool result = executor.report(protocolId);
         vm.assertTrue(result);
@@ -371,17 +371,17 @@ contract GuardianExecutorTest is Test {
         registry.resolveIncident(protocolId);
 
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         registry.claim(protocolId);
-        vm.assertEq(watcher.balance, 4 ether);
-        vm.assertEq(registry.totalAwarded(), 4 ether);
+        vm.assertEq(watcher.balance, 3.96 ether);
+        vm.assertEq(registry.totalAwarded(), 3.96 ether);
 
         IDeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
         vm.assertEq(p.balance, 4 ether);
         vm.assertFalse(p.incidentActive);
         vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
-        vm.assertEq(address(registry).balance, 4 ether);
+        vm.assertEq(address(registry).balance, 4.04 ether);
     }
 
     function testFullLifecycleFromCheckInBreachToClaim() public {
@@ -399,11 +399,11 @@ contract GuardianExecutorTest is Test {
         vm.expectEmit(true, true, true, true, address(executor));
         emit IGuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         executor.checkIn(protocolId);
         vm.assertTrue(mockProtocol.paused());
-        vm.assertEq(registry.claimableBounties(watcher, protocolId), 4 ether + 1e6 wei);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 3.96 ether + 1e6 wei);
 
         vm.deal(protocolOwner, 5 ether);
         vm.prank(protocolOwner);
@@ -415,17 +415,17 @@ contract GuardianExecutorTest is Test {
         registry.resolveIncident(protocolId);
 
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 4 ether + 1e6 wei);
+        emit IDeSecRegistry.BountyClaimed(protocolId, watcher, 3.96 ether + 1e6 wei);
         vm.prank(watcher);
         registry.claim(protocolId);
-        vm.assertEq(watcher.balance, 4 ether + 1e6 wei);
-        vm.assertEq(registry.totalAwarded(), 4 ether + 1e6 wei);
+        vm.assertEq(watcher.balance, 3.96 ether + 1e6 wei);
+        vm.assertEq(registry.totalAwarded(), 3.96 ether + 1e6 wei);
 
         IDeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
         vm.assertEq(p.balance, 6 ether - 1e6 wei);
         vm.assertFalse(p.incidentActive);
         vm.assertEq(registry.claimableBounties(watcher, protocolId), 0);
-        vm.assertEq(address(registry).balance, 6 ether - 1e6 wei);
+        vm.assertEq(address(registry).balance, 6.04 ether - 1e6 wei);
     }
 
     function testReportRevertsWhileIncidentIsActive() public {
@@ -500,7 +500,7 @@ contract GuardianExecutorTest is Test {
         vm.assertEq(protocolOwner.balance, ownerBefore + 1 ether);
         vm.prank(watcher);
         registry.claim(protocolId);
-        vm.assertEq(watcher.balance, 4 ether);
+        vm.assertEq(watcher.balance, 3.96 ether);
     }
 
     function testResolveIncidentRestoresMonitoring() public {
@@ -532,10 +532,10 @@ contract GuardianExecutorTest is Test {
         mockProtocol.breakHealth();
         address secondWatcher = makeAddr("Second_Watcher");
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, secondWatcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, secondWatcher, 3.96 ether);
         vm.prank(secondWatcher);
         executor.report(protocolId);
-        vm.assertEq(registry.claimableBounties(secondWatcher, protocolId), 4 ether);
+        vm.assertEq(registry.claimableBounties(secondWatcher, protocolId), 3.96 ether);
     }
 
     function testResolveIncidentRevertsWhenInvariantStillBroken() public {
@@ -704,14 +704,14 @@ contract GuardianExecutorTest is Test {
         vm.expectEmit(true, true, true, true, address(executor));
         emit IGuardianExecutor.EmergencyActionCalled(protocolId, address(mockProtocol), true);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 4 ether);
+        emit IDeSecRegistry.BountyAwarded(protocolId, watcher, 3.96 ether);
         vm.prank(watcher);
         executor.checkIn(protocolId);
         IDeSecRegistry.Protocol memory p = registry.getProtocol(protocolId);
         vm.assertTrue(mockProtocol.paused());
         vm.assertTrue(p.incidentActive);
-        vm.assertEq(registry.claimableBounties(watcher, protocolId), 4 ether);
-        vm.assertEq(registry.totalAwarded(), 4 ether);
+        vm.assertEq(registry.claimableBounties(watcher, protocolId), 3.96 ether);
+        vm.assertEq(registry.totalAwarded(), 3.96 ether);
         vm.assertEq(p.balance, 1 ether);
         vm.assertEq(p.lastCheckIn, registrationTime);
     }
@@ -732,8 +732,10 @@ contract GuardianExecutorTest is Test {
         executor.report(id);
         vm.prank(watcher);
         registry.claim(id);
-        vm.assertEq(watcher.balance, bounty);
+        uint256 fee = (bounty * registry.NETWORK_FEE_BPS()) / registry.BPS_DENOMINATOR();
+        vm.assertEq(watcher.balance, bounty - fee);
         vm.assertEq(registry.claimableBounties(watcher, id), 0);
-        vm.assertEq(registry.totalAwarded(), bounty);
+        vm.assertEq(registry.totalAwarded(), bounty - fee);
+        vm.assertEq(registry.networkFees(), fee);
     }
 }

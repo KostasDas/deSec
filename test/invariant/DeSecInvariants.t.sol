@@ -24,6 +24,9 @@ contract DeSecHandler is Test {
     uint256 public ghostAwarded;
     uint256 public ghostClaimed;
     uint256 public ghostClaimableOutstanding;
+    uint256 public ghostFeesSkimmed;
+    uint256 public ghostFeesDonated;
+    uint256 public ghostFeesWithdrawn;
     bool public reportDuringIncidentSucceeded;
     bool public checkInDuringIncidentSucceeded;
     bool public bountyDecreased;
@@ -117,8 +120,10 @@ contract DeSecHandler is Test {
             } catch {}
         } else {
             try executor.report(id) {
-                ghostAwarded += p.bounty;
-                ghostClaimableOutstanding += p.bounty;
+                uint256 fee = (p.bounty * registry.NETWORK_FEE_BPS()) / registry.BPS_DENOMINATOR();
+                ghostFeesSkimmed += fee;
+                ghostAwarded += p.bounty - fee;
+                ghostClaimableOutstanding += p.bounty - fee;
             } catch {}
         }
         _syncBounty(id);
@@ -145,8 +150,10 @@ contract DeSecHandler is Test {
             }
             IDeSecRegistry.Protocol memory post = registry.getProtocol(id);
             if (post.incidentActive) {
-                ghostAwarded += pre.bounty;
-                ghostClaimableOutstanding += pre.bounty;
+                uint256 fee = (pre.bounty * registry.NETWORK_FEE_BPS()) / registry.BPS_DENOMINATOR();
+                ghostFeesSkimmed += fee;
+                ghostAwarded += pre.bounty - fee;
+                ghostClaimableOutstanding += pre.bounty - fee;
             } else {
                 ghostAwarded += pre.checkInFee;
                 ghostClaimableOutstanding += pre.checkInFee;
@@ -164,6 +171,26 @@ contract DeSecHandler is Test {
         try registry.claim(id) {
             ghostClaimed += claimable;
             ghostClaimableOutstanding -= claimable;
+        } catch {}
+    }
+
+    function donate(uint256 amountSeed, uint256 dataSeed) external {
+        uint256 amount = bound(amountSeed, 0, 10 ether);
+        bool success;
+        if (dataSeed % 2 == 0) {
+            (success,) = address(registry).call{value: amount}("");
+        } else {
+            (success,) = address(registry).call{value: amount}(hex"deadbeef");
+        }
+        if (success) {
+            ghostFeesDonated += amount;
+        }
+    }
+
+    function withdrawNetworkFees() external {
+        uint256 fees = registry.networkFees();
+        try registry.withdrawNetworkFees() {
+            ghostFeesWithdrawn += fees;
         } catch {}
     }
 
@@ -209,7 +236,7 @@ contract DeSecInvariantsTest is Test {
         registry = handler.registry();
         vm.deal(address(handler), 1_000_000 ether);
 
-        bytes4[] memory selectors = new bytes4[](11);
+        bytes4[] memory selectors = new bytes4[](13);
         selectors[0] = DeSecHandler.registerProtocol.selector;
         selectors[1] = DeSecHandler.topUp.selector;
         selectors[2] = DeSecHandler.addBounty.selector;
@@ -221,6 +248,8 @@ contract DeSecInvariantsTest is Test {
         selectors[8] = DeSecHandler.resolveIncident.selector;
         selectors[9] = DeSecHandler.claim.selector;
         selectors[10] = DeSecHandler.checkIn.selector;
+        selectors[11] = DeSecHandler.donate.selector;
+        selectors[12] = DeSecHandler.withdrawNetworkFees.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -231,8 +260,8 @@ contract DeSecInvariantsTest is Test {
         for (uint256 i = 0; i < ids.length; i++) {
             recordsSum += registry.getProtocol(ids[i]).balance;
         }
-        // surplus is possible: direct donations via receive/fallback
-        assertGe(address(registry).balance, recordsSum + handler.ghostClaimableOutstanding());
+        // surplus is possible: ether force-sent via selfdestruct bypasses accounting
+        assertGe(address(registry).balance, recordsSum + handler.ghostClaimableOutstanding() + registry.networkFees());
     }
 
     function invariant_totalAwardedMatchesEveryAward() public view {
@@ -267,5 +296,12 @@ contract DeSecInvariantsTest is Test {
 
     function invariant_executorNeverChanges() public view {
         assertEq(address(registry.executor()), address(handler.factory().executor()));
+    }
+
+    function invariant_networkFeeAccountingIsExact() public view {
+        assertEq(
+            registry.networkFees() + handler.ghostFeesWithdrawn(),
+            handler.ghostFeesSkimmed() + handler.ghostFeesDonated()
+        );
     }
 }

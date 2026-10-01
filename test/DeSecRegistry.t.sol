@@ -654,7 +654,145 @@ contract DeSecRegistryTest is Test {
     function testRegistryConstructorRevertsWhenFactoryIsZero() public {
         bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.ZeroAddress.selector);
         vm.expectRevert(expectedError);
-        new DeSecRegistry(GuardianAdapterFactory(address(0)));
+        new DeSecRegistry(GuardianAdapterFactory(address(0)), protocolOwner);
+    }
+
+    function testRegistryConstructorRevertsWhenFeeRecipientIsZero() public {
+        bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new DeSecRegistry(GuardianAdapterFactory(address(1)), address(0));
+    }
+
+    // ==============================================
+    // Network fees
+    // ==============================================
+
+    function testFeeRecipientIsFactoryDeployer() public {
+        DeSecRegistry registry = factory.registry();
+        vm.assertEq(registry.feeRecipient(), address(this));
+    }
+
+    function testReportSkimsNetworkFeeFromBounty() public {
+        DeSecRegistry registry = factory.registry();
+        GuardianExecutor executor = factory.executor();
+        vm.prank(protocolOwner);
+        (, uint256 id) = factory.register{value: 5 ether}(
+            address(mockProtocol), invariantPayload, emergencyPayload, 4 ether, 1e6 wei, 5 minutes, protocolOwner
+        );
+        mockProtocol.breakHealth();
+        address watcher = makeAddr("Watcher");
+        vm.prank(watcher);
+        executor.report(id);
+        vm.assertEq(registry.claimableBounties(watcher, id), 3.96 ether);
+        vm.assertEq(registry.networkFees(), 0.04 ether);
+        vm.assertEq(registry.totalAwarded(), 3.96 ether);
+    }
+
+    function testDonationsThroughReceiveIncrementNetworkFees() public {
+        DeSecRegistry registry = factory.registry();
+        vm.deal(address(this), 2 ether);
+        (bool success,) = address(registry).call{value: 1 ether}("");
+        vm.assertTrue(success);
+        vm.assertEq(registry.networkFees(), 1 ether);
+    }
+
+    function testDonationsThroughFallbackIncrementNetworkFees() public {
+        DeSecRegistry registry = factory.registry();
+        vm.deal(address(this), 2 ether);
+        (bool success,) = address(registry).call{value: 1 ether}(hex"deadbeef");
+        vm.assertTrue(success);
+        vm.assertEq(registry.networkFees(), 1 ether);
+    }
+
+    function testWithdrawNetworkFeesTransfersToRecipient() public {
+        DeSecRegistry registry = factory.registry();
+        address network = makeAddr("Network_Treasury");
+        registry.transferFeeRecipient(network);
+        vm.prank(network);
+        registry.acceptFeeRecipient();
+        vm.deal(address(this), 2 ether);
+        (bool success,) = address(registry).call{value: 1 ether}("");
+        vm.assertTrue(success);
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IDeSecRegistry.NetworkFeesWithdrawn(network, 1 ether);
+        vm.prank(network);
+        registry.withdrawNetworkFees();
+        vm.assertEq(network.balance, 1 ether);
+        vm.assertEq(registry.networkFees(), 0);
+    }
+
+    function testWithdrawNetworkFeesRevertsWhenNoFees() public {
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.NoNetworkFees.selector);
+        vm.expectRevert(expectedError);
+        registry.withdrawNetworkFees();
+    }
+
+    function testWithdrawNetworkFeesRevertsWhenCalledByNonRecipient() public {
+        DeSecRegistry registry = factory.registry();
+        vm.deal(address(this), 2 ether);
+        (bool success,) = address(registry).call{value: 1 ether}("");
+        vm.assertTrue(success);
+        vm.expectRevert();
+        vm.prank(random);
+        registry.withdrawNetworkFees();
+    }
+
+    function testTransferFeeRecipientStartsRotation() public {
+        DeSecRegistry registry = factory.registry();
+        address network = makeAddr("Network_Treasury");
+        vm.expectEmit(true, true, false, false, address(registry));
+        emit IDeSecRegistry.FeeRecipientTransferStarted(address(this), network);
+        registry.transferFeeRecipient(network);
+        vm.assertEq(registry.pendingFeeRecipient(), network);
+        vm.assertEq(registry.feeRecipient(), address(this));
+    }
+
+    function testTransferFeeRecipientRevertsWhenCalledByNonRecipient() public {
+        DeSecRegistry registry = factory.registry();
+        vm.expectRevert();
+        vm.prank(random);
+        registry.transferFeeRecipient(makeAddr("Network_Treasury"));
+    }
+
+    function testTransferFeeRecipientRevertsToZeroAddress() public {
+        DeSecRegistry registry = factory.registry();
+        bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        registry.transferFeeRecipient(address(0));
+    }
+
+    function testAcceptFeeRecipientCompletesRotation() public {
+        DeSecRegistry registry = factory.registry();
+        address network = makeAddr("Network_Treasury");
+        registry.transferFeeRecipient(network);
+        vm.expectEmit(true, true, false, false, address(registry));
+        emit IDeSecRegistry.FeeRecipientTransferred(address(this), network);
+        vm.prank(network);
+        registry.acceptFeeRecipient();
+        vm.assertEq(registry.feeRecipient(), network);
+        vm.assertEq(registry.pendingFeeRecipient(), address(0));
+    }
+
+    function testAcceptFeeRecipientRevertsWhenCalledByWrongAccount() public {
+        DeSecRegistry registry = factory.registry();
+        registry.transferFeeRecipient(makeAddr("Network_Treasury"));
+        vm.expectRevert();
+        vm.prank(random);
+        registry.acceptFeeRecipient();
+    }
+
+    function testOldRecipientCannotWithdrawAfterRotation() public {
+        DeSecRegistry registry = factory.registry();
+        address network = makeAddr("Network_Treasury");
+        registry.transferFeeRecipient(network);
+        vm.prank(network);
+        registry.acceptFeeRecipient();
+        vm.deal(address(this), 2 ether);
+        (bool success,) = address(registry).call{value: 1 ether}("");
+        vm.assertTrue(success);
+        vm.expectRevert();
+        registry.withdrawNetworkFees();
     }
 
     // ==============================================
