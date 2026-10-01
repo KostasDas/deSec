@@ -7,9 +7,15 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IGuardianExecutor} from "./interfaces/IGuardianExecutor.sol";
 import {IDeSecRegistry} from "./interfaces/IDeSecRegistry.sol";
 
+/// @title Guardian Executor
+/// @dev All entry points are nonReentrant, and bounties are credited as claimable balances inside the
+/// registry (checks-effects-interactions) so the time-critical trigger never pushes ETH to an untrusted
+/// recipient. See {IGuardianExecutor} for the full API contract.
 contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
     DeSecRegistry public immutable registry;
 
+    /// @dev The registry binding is immutable — the factory deploys and wires executor and registry together.
+    /// @param _registry The registry holding every protocol record and escrow this executor acts on.
     constructor(DeSecRegistry _registry) {
         if (address(_registry) == address(0)) {
             revert ZeroAddress();
@@ -17,11 +23,15 @@ contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
         registry = _registry;
     }
 
+    /// @inheritdoc IGuardianExecutor
     function report(uint256 _protocolId) public override nonReentrant returns (bool) {
         IDeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
         return _report(p);
     }
 
+    /// @dev Shared trigger path for report and for checkIn-discovered breaches. The bounty is awarded
+    /// regardless of the emergency call's outcome — it pays for the verified alarm, not the pause,
+    /// because registration can never prove the pause will work.
     function _report(IDeSecRegistry.Protocol memory _p) internal returns (bool) {
         if (_p.incidentActive) {
             revert IncidentActive(_p.protocolId);
@@ -44,6 +54,7 @@ contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
         return result;
     }
 
+    /// @inheritdoc IGuardianExecutor
     function checkIn(uint256 _protocolId) public override nonReentrant {
         IDeSecRegistry.Protocol memory p = registry.getProtocol(_protocolId);
         if (p.incidentActive) {
@@ -63,6 +74,8 @@ contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
         _report(p);
     }
 
+    /// @dev Staticcall, so the check is read-only by construction. A reverting invariant raises
+    /// InvariantReverted — unevaluable, never a violation — instead of being read as a breach.
     function invariantCheck(address _protocol, bytes memory _payload) internal view returns (bool) {
         (bool success, bytes memory returnData) = _protocol.staticcall(_payload);
         if (!success) {
@@ -71,6 +84,8 @@ contract GuardianExecutor is IGuardianExecutor, ReentrancyGuard {
         return abi.decode(returnData, (bool));
     }
 
+    /// @dev try/catch keeps a failing emergency call from undoing the verified alarm or the bounty;
+    /// the bubbled reason is emitted in EmergencyActionFailed.
     function triggerEmergencyAction(
         uint256 _protocolId,
         GuardianAdapter _adapter,

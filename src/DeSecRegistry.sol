@@ -7,6 +7,11 @@ import {GuardianAdapterFactory} from "./GuardianAdapterFactory.sol";
 import {GuardianExecutor} from "./GuardianExecutor.sol";
 import {IDeSecRegistry} from "./interfaces/IDeSecRegistry.sol";
 
+/// @title DeSec Registry
+/// @dev Implementation notes beyond the interface: `onlyOwner` resolves the administrator from
+/// `adapter.owner()` on every call (nothing is cached), escrow accounting is keyed by protocolId, and
+/// the receive/fallback pair credits all unsolicited ETH to `networkFees` because senders cannot be
+/// identified or refunded. See {IDeSecRegistry} for the full API contract.
 contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
     uint32 public constant override MINIMUM_INTERVAL = 1 minutes;
     uint256 public constant override MINIMUM_REGISTRATION_FEE = 0.01 ether;
@@ -46,6 +51,9 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         _;
     }
 
+    /// @dev The `feeRecipient` manages itself from deployment on — there is no separate admin for the fee pool.
+    /// @param _factory The one factory allowed to register records, bound immutably here as an anti-grief measure.
+    /// @param _feeRecipient Initial owner of the network fee pool; the factory passes its own deployer.
     constructor(GuardianAdapterFactory _factory, address _feeRecipient) {
         if (address(_factory) == address(0) || _feeRecipient == address(0)) {
             revert ZeroAddress();
@@ -56,6 +64,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit RegistryDeployed(address(this));
     }
 
+    /// @inheritdoc IDeSecRegistry
     function setExecutor(GuardianExecutor _executor) external override onlyFactory {
         if (address(executor) != address(0)) {
             revert ExecutorAlreadySet();
@@ -67,20 +76,18 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit ExecutorSet(address(_executor));
     }
 
-    /**
-     * Registration reverts when:
-     * - bounty or msg.value are less than minimum
-     * - msg.value is less than bounty or msg.value is less than bounty + checkInFee
-     * if the check in fee is not 0, value should cover at least one check in fee.
-     *
-     * @param _protocol the protocol registering
-     * @param _adapter the adapter deployed by the factory
-     * @param _invariantPayload  the invariant the adapter will check that must never be broken
-     * @param _emergencyActionPayload  what the adapter will call in case the invariant is broken
-     * @param _bounty how much the protocol will pay for the report
-     * @param _checkInFee how much the protocol pays for a check in (an invariant checl)
-     * @param _interval  how often the protocol allows checkins
-     */
+    /// @inheritdoc IDeSecRegistry
+    /// @dev Registration reverts when:
+    /// - bounty or msg.value are less than minimum
+    /// - msg.value is less than bounty or msg.value is less than bounty + checkInFee
+    /// if the check in fee is not 0, value should cover at least one check in fee.
+    /// @param _protocol the protocol registering
+    /// @param _adapter the adapter deployed by the factory
+    /// @param _invariantPayload the invariant the adapter will check that must never be broken
+    /// @param _emergencyActionPayload what the adapter will call in case the invariant is broken
+    /// @param _bounty how much the protocol will pay for the report
+    /// @param _checkInFee how much the protocol pays for a check in (an invariant check)
+    /// @param _interval how often the protocol allows checkins
     function register(
         address _protocol,
         GuardianAdapter _adapter,
@@ -128,6 +135,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         return p.protocolId;
     }
 
+    /// @inheritdoc IDeSecRegistry
     function getProtocol(uint256 _id) public view override returns (Protocol memory) {
         Protocol memory p = protocols[_id];
         if (p.protocolId == 0) {
@@ -136,6 +144,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         return p;
     }
 
+    /// @inheritdoc IDeSecRegistry
     function addBounty(uint256 _protocolId) public payable override onlyOwner(_protocolId) {
         if (msg.value == 0) {
             revert ValueRequired();
@@ -151,6 +160,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit BalanceUpdated(_protocolId, previousBalance, p.balance);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function topUp(uint256 _protocolId) external payable override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         if (msg.value == 0) {
@@ -162,6 +172,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit BalanceUpdated(_protocolId, previous, p.balance);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function remainingCheckIns(uint256 _protocolId) external view override returns (uint256) {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
@@ -174,6 +185,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         return checkInBalance / p.checkInFee;
     }
 
+    /// @inheritdoc IDeSecRegistry
     function lastCheckIn(uint256 _protocolId) external view override returns (uint256) {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
@@ -186,6 +198,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
      * Protocol Owner actions
      */
 
+    /// @inheritdoc IDeSecRegistry
     function deRegister(uint256 _protocolId) public override onlyOwner(_protocolId) nonReentrant {
         Protocol storage p = protocols[_protocolId];
         uint256 balance = p.balance;
@@ -198,6 +211,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         revert ActionFailed(data);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function updateCheckInFee(uint256 _protocolId, uint256 _fee) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         uint256 previous = p.checkInFee;
@@ -205,6 +219,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit CheckInFeeUpdated(_protocolId, previous, _fee);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function updateInterval(uint256 _protocolId, uint32 _interval) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         if (_interval < MINIMUM_INTERVAL) {
@@ -215,6 +230,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit IntervalUpdated(_protocolId, previous, _interval);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function withdraw(uint256 _protocolId, uint256 _amount) public override onlyOwner(_protocolId) nonReentrant {
         Protocol storage p = protocols[_protocolId];
         uint256 previousBalance = p.balance;
@@ -238,6 +254,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         revert ActionFailed(data);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function updateInvariant(uint256 _protocolId, bytes calldata _newInvariant) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, _newInvariant);
@@ -247,6 +264,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit InvariantUpdated(_protocolId, previous, _newInvariant);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function updateEmergencyAction(uint256 _protocolId, bytes calldata _newEmergency)
         public
         override
@@ -259,6 +277,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit EmergencyActionUpdated(_protocolId, previous, _newEmergency);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function resolveIncident(uint256 _protocolId) public override onlyOwner(_protocolId) {
         Protocol storage p = protocols[_protocolId];
         invariantCheck(p.protocol, p.invariantPayload);
@@ -269,6 +288,8 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit IncidentResolved(_protocolId);
     }
 
+    /// @dev Test-fires the invariant read-only: the target must hold code, the call must succeed, and
+    /// the answer must be true. Used at registration, on every invariant update, and at incident resolution.
     function invariantCheck(address _protocol, bytes memory _invariant) internal view {
         if (_protocol.code.length == 0) {
             revert NoCodeAtTarget(_protocol);
@@ -283,6 +304,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         }
     }
 
+    /// @inheritdoc IDeSecRegistry
     function awardBounty(uint256 _protocolId, address _watcher) public override onlyExecutor {
         Protocol storage p = protocols[_protocolId];
         if (p.protocolId == 0) {
@@ -301,6 +323,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit BountyAwarded(_protocolId, _watcher, net);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function drip(uint256 _protocolId, address _watcher) public override onlyExecutor {
         Protocol storage p = protocols[_protocolId];
         p.balance -= p.checkInFee;
@@ -311,6 +334,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit BountyAwarded(_protocolId, _watcher, p.checkInFee);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function claim(uint256 _protocolId) public override nonReentrant {
         uint256 bounty = claimableBounties[msg.sender][_protocolId];
         if (bounty == 0) {
@@ -333,6 +357,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         networkFees += msg.value;
     }
 
+    /// @inheritdoc IDeSecRegistry
     function transferFeeRecipient(address _newRecipient) external override onlyFeeRecipient {
         if (_newRecipient == address(0)) {
             revert ZeroAddress();
@@ -341,6 +366,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit FeeRecipientTransferStarted(feeRecipient, _newRecipient);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function acceptFeeRecipient() external override {
         require(msg.sender == pendingFeeRecipient);
         address previous = feeRecipient;
@@ -349,6 +375,7 @@ contract DeSecRegistry is IDeSecRegistry, ReentrancyGuard {
         emit FeeRecipientTransferred(previous, feeRecipient);
     }
 
+    /// @inheritdoc IDeSecRegistry
     function withdrawNetworkFees() external override onlyFeeRecipient nonReentrant {
         uint256 amount = networkFees;
         if (amount == 0) {
