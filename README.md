@@ -32,6 +32,7 @@ For users:
 - Single tx exploits cannot be detected
 - No ERC-20 bounties (on Roadmap)
 - Gas volatilities may not cover check-in fees without protocol owner supervision.
+- MEV capturing. Currently this is semi-protected because bounties are awarded as claimable but MEV bots can adapt
 
 ## Getting Started
 
@@ -77,6 +78,7 @@ The script logs the factory, registry, executor, and fee recipient addresses. Be
 
 3. Roadmap:
 
+- MEV protection
 - Accept ERC20 tokens for bounties and check-in fees.
 - Cross chain calls
 - Allow forwarding gas fees to protocol instead of check-in fees (or on top)
