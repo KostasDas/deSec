@@ -46,6 +46,7 @@ The entire network deploys from a single transaction: the `GuardianAdapterFactor
 RPC_URL=<your rpc endpoint>
 ETHERSCAN_URL=<your block explorer verifier url>
 PRIVATE_KEY=<deployer private key, 0x-prefixed>
+FEE_RECIPIENT=<your network fee recipient address>
 ```
 
 2. Deploy and verify:
