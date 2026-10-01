@@ -16,6 +16,7 @@ import {console} from "forge-std/console.sol";
 contract DeSecRegistryTest is Test {
     address protocolOwner = makeAddr("Protocol_Owner");
     address random = makeAddr("Random_Account");
+    address feeRecipient = makeAddr("Fee_Recipient");
     MockProtocol mockProtocol;
     GuardianAdapterFactory private factory;
     bytes invariantPayload = abi.encodeCall(MockProtocol.isHealthy, ());
@@ -24,7 +25,7 @@ contract DeSecRegistryTest is Test {
     bytes breakHealthPayload = abi.encodeCall(MockProtocol.breakHealth, ());
 
     function setUp() public {
-        factory = new GuardianAdapterFactory();
+        factory = new GuardianAdapterFactory(feeRecipient);
         vm.deal(protocolOwner, 5 ether);
         vm.prank(protocolOwner);
         mockProtocol = new MockProtocol();
@@ -577,7 +578,7 @@ contract DeSecRegistryTest is Test {
         vm.assertEq(p.balance, 2.5 ether);
     }
 
-    function testExecutorIsWiredAtDeployment() public {
+    function testExecutorIsWiredAtDeployment() public view {
         DeSecRegistry registry = factory.registry();
         vm.assertEq(address(registry.executor()), address(factory.executor()));
     }
@@ -667,9 +668,15 @@ contract DeSecRegistryTest is Test {
     // Network fees
     // ==============================================
 
-    function testFeeRecipientIsFactoryDeployer() public {
+    function testFeeRecipientComesFromDeploymentParam() public view {
         DeSecRegistry registry = factory.registry();
-        vm.assertEq(registry.feeRecipient(), address(this));
+        vm.assertEq(registry.feeRecipient(), feeRecipient);
+    }
+
+    function testFactoryConstructorRevertsWhenFeeRecipientIsZero() public {
+        bytes memory expectedError = abi.encodeWithSelector(GuardianAdapterFactory.ZeroAddress.selector);
+        vm.expectRevert(expectedError);
+        new GuardianAdapterFactory(address(0));
     }
 
     function testReportSkimsNetworkFeeFromBounty() public {
@@ -707,6 +714,7 @@ contract DeSecRegistryTest is Test {
     function testWithdrawNetworkFeesTransfersToRecipient() public {
         DeSecRegistry registry = factory.registry();
         address network = makeAddr("Network_Treasury");
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(network);
         vm.prank(network);
         registry.acceptFeeRecipient();
@@ -725,6 +733,7 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.NoNetworkFees.selector);
         vm.expectRevert(expectedError);
+        vm.prank(feeRecipient);
         registry.withdrawNetworkFees();
     }
 
@@ -742,10 +751,11 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         address network = makeAddr("Network_Treasury");
         vm.expectEmit(true, true, false, false, address(registry));
-        emit IDeSecRegistry.FeeRecipientTransferStarted(address(this), network);
+        emit IDeSecRegistry.FeeRecipientTransferStarted(feeRecipient, network);
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(network);
         vm.assertEq(registry.pendingFeeRecipient(), network);
-        vm.assertEq(registry.feeRecipient(), address(this));
+        vm.assertEq(registry.feeRecipient(), feeRecipient);
     }
 
     function testTransferFeeRecipientRevertsWhenCalledByNonRecipient() public {
@@ -759,15 +769,17 @@ contract DeSecRegistryTest is Test {
         DeSecRegistry registry = factory.registry();
         bytes memory expectedError = abi.encodeWithSelector(IDeSecRegistry.ZeroAddress.selector);
         vm.expectRevert(expectedError);
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(address(0));
     }
 
     function testAcceptFeeRecipientCompletesRotation() public {
         DeSecRegistry registry = factory.registry();
         address network = makeAddr("Network_Treasury");
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(network);
         vm.expectEmit(true, true, false, false, address(registry));
-        emit IDeSecRegistry.FeeRecipientTransferred(address(this), network);
+        emit IDeSecRegistry.FeeRecipientTransferred(feeRecipient, network);
         vm.prank(network);
         registry.acceptFeeRecipient();
         vm.assertEq(registry.feeRecipient(), network);
@@ -776,6 +788,7 @@ contract DeSecRegistryTest is Test {
 
     function testAcceptFeeRecipientRevertsWhenCalledByWrongAccount() public {
         DeSecRegistry registry = factory.registry();
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(makeAddr("Network_Treasury"));
         vm.expectRevert();
         vm.prank(random);
@@ -785,6 +798,7 @@ contract DeSecRegistryTest is Test {
     function testOldRecipientCannotWithdrawAfterRotation() public {
         DeSecRegistry registry = factory.registry();
         address network = makeAddr("Network_Treasury");
+        vm.prank(feeRecipient);
         registry.transferFeeRecipient(network);
         vm.prank(network);
         registry.acceptFeeRecipient();

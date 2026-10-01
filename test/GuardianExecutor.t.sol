@@ -19,6 +19,7 @@ contract GuardianExecutorTest is Test {
     address protocolOwner = makeAddr("Protocol_Owner");
     address watcher = makeAddr("Watcher");
     address random = makeAddr("Random_Account");
+    address networkFeeRecipient = makeAddr("Network_Fee_Recipient");
     MockProtocol mockProtocol;
     GuardianAdapterFactory private factory;
     GuardianExecutor executor;
@@ -29,7 +30,7 @@ contract GuardianExecutorTest is Test {
     bytes emergencyPayload = abi.encodeCall(MockProtocol.pause, ());
 
     function setUp() public {
-        factory = new GuardianAdapterFactory();
+        factory = new GuardianAdapterFactory(networkFeeRecipient);
         executor = factory.executor();
         registry = factory.registry();
         vm.deal(protocolOwner, 5 ether);
@@ -326,7 +327,7 @@ contract GuardianExecutorTest is Test {
     }
 
     function testClaimSucceedsWhenBountyEqualsEntireRegistryBalance() public {
-        GuardianAdapterFactory freshFactory = new GuardianAdapterFactory();
+        GuardianAdapterFactory freshFactory = new GuardianAdapterFactory(networkFeeRecipient);
         GuardianExecutor freshExecutor = freshFactory.executor();
         DeSecRegistry freshRegistry = freshFactory.registry();
         vm.prank(protocolOwner);

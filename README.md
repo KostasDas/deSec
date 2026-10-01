@@ -1,66 +1,58 @@
-## Foundry
+# Decentralized Security
+DeSec is an attempt to incentivize protocols and users to collaborate in combatting real time exploits.
+## Overview
+The DeSec protocol allows anyone to register any smart contract and provide:
+- An invariant that should never be broken
+- A bounty for reporting that invariant as broken
+- A check-in fee that drips to watchers that verify the integrity of the invariant
+- An interval for the check-in fee
+- A protocol owner, acting as an admin for their registered protocol
+- An emergency action, triggered when the invariant is confirmed broken
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+The check-in fee and the emergency action are optional. The protocol can be registered and bounty only.
 
-Foundry consists of:
+You can read the full specification at: [Protocol specification](/docs/protocol.md)
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+It is MIT licensed.
 
-## Documentation
+### Getting Started
 
-https://book.getfoundry.sh/
+This project is built with [Foundry](https://book.getfoundry.sh/).
 
-## Usage
+```bash
+# Install Foundry (once per machine)
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
 
-### Build
+# Clone with the dependencies (forge-std, openzeppelin-contracts)
+git clone --recurse-submodules <repo-url>
+cd deSec
 
-```shell
-$ forge build
+# If you already cloned without submodules:
+git submodule update --init --recursive
+
+# Build and run the full test suite (unit, fuzz, and invariant tests)
+forge build
+forge test
 ```
 
-### Test
+### Deployment
 
-```shell
-$ forge test
+The entire network deploys from a single transaction: the `GuardianAdapterFactory` constructor deploys the `DeSecRegistry` and the `GuardianExecutor` and wires them together. The deployer of the factory becomes the initial network fee recipient.
+
+1. Create a `.env` file in the project root:
+
+```bash
+RPC_URL=<your rpc endpoint>
+ETHERSCAN_URL=<your block explorer verifier url>
+PRIVATE_KEY=<deployer private key, 0x-prefixed>
 ```
 
-### Format
+2. Deploy and verify:
 
-```shell
-$ forge fmt
+```bash
+forge script script/DeSec.s.sol --rpc-url $RPC_URL --broadcast --verify --verifier-url $ETHERSCAN_URL -vvvv
 ```
 
-### Gas Snapshots
+The script logs the factory, registry, executor, and fee recipient addresses. Before broadcasting to a live network, you can dry-run the deployment locally with `forge script script/DeSec.s.sol`.
 
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```

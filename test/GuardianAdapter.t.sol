@@ -14,16 +14,18 @@ import {console} from "forge-std/console.sol";
 contract GuardianAdapterTest is Test {
     address protocolOwner = makeAddr("Protocol_Owner");
     address random = makeAddr("Random_Account");
+    address networkFeeRecipient = makeAddr("Network_Fee_Recipient");
     MockProtocol mockProtocol;
     GuardianAdapterFactory private factory;
     GuardianExecutor executor;
     GuardianAdapter adapter;
+
     uint256 protocolId;
     bytes invariantPayload = abi.encodeCall(MockProtocol.isHealthy, ());
     bytes emergencyPayload = abi.encodeCall(MockProtocol.pause, ());
 
     function setUp() public {
-        factory = new GuardianAdapterFactory();
+        factory = new GuardianAdapterFactory(networkFeeRecipient);
         executor = factory.executor();
         vm.deal(protocolOwner, 5 ether);
         vm.prank(protocolOwner);
@@ -61,7 +63,7 @@ contract GuardianAdapterTest is Test {
         adapter.callEmergencyFunction(address(mockProtocol), emergencyPayload);
     }
 
-    function testConstructorWiresOwnerExecutorAndRegistry() public {
+    function testConstructorWiresOwnerExecutorAndRegistry() public view {
         vm.assertEq(adapter.owner(), protocolOwner);
         vm.assertEq(address(adapter.executor()), address(executor));
         vm.assertEq(address(adapter.registry()), address(factory.registry()));

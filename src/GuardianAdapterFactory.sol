@@ -15,10 +15,16 @@ contract GuardianAdapterFactory {
     DeSecRegistry public immutable registry;
     GuardianExecutor public immutable executor;
 
+    error ZeroAddress();
+
     /// @dev Binds the registry to this factory and wires the executor set-once, all within one
-    /// transaction; the factory's deployer becomes the initial network fee recipient.
-    constructor() {
-        registry = new DeSecRegistry(this, msg.sender);
+    /// transaction.
+    /// @param _feeRecipient The initial network fee recipient, passed through to the registry.
+    constructor(address _feeRecipient) {
+        if (_feeRecipient == address(0)) {
+            revert ZeroAddress();
+        }
+        registry = new DeSecRegistry(this, _feeRecipient);
         executor = new GuardianExecutor(registry);
         registry.setExecutor(executor);
     }

@@ -39,11 +39,11 @@ contract MockProtocol is AccessControl {
         paused = true;
     }
 
-    function pauseWithCustomError() external {
+    function pauseWithCustomError() external pure {
         revert PauseFailed();
     }
 
-    function pauseSilently() external {
+    function pauseSilently() external pure {
         revert();
     }
 }

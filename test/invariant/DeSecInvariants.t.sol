@@ -17,6 +17,7 @@ contract DeSecHandler is Test {
 
     address public watcherOne = makeAddr("Watcher_One");
     address public watcherTwo = makeAddr("Watcher_Two");
+    address public networkFeeRecipient = makeAddr("rec");
 
     uint256[] public liveIds;
     uint256[] public allIds;
@@ -33,7 +34,7 @@ contract DeSecHandler is Test {
     mapping(uint256 => uint256) public ghostLastBounty;
 
     constructor() {
-        factory = new GuardianAdapterFactory();
+        factory = new GuardianAdapterFactory(networkFeeRecipient);
         registry = factory.registry();
         executor = factory.executor();
         for (uint256 i = 0; i < 3; i++) {
