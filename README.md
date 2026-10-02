@@ -78,8 +78,8 @@ The script logs the factory, registry, executor, and fee recipient addresses. Be
 
 3. Roadmap:
 
+- Frontend
 - MEV protection
 - Accept ERC20 tokens for bounties and check-in fees.
-- Cross chain calls
-- Allow forwarding gas fees to protocol instead of check-in fees (or on top)
+- VDP with ZK Bounties.
 
